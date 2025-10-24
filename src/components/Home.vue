@@ -6,7 +6,8 @@
         <h1 class="mb-4">Bienvenido a la Gestión de Hojas</h1>
         <p class="mb-6">Utilice el menú superior para subir una hoja de novedades o consultar el listado de hojas creadas.</p>
         <v-btn to="/file-uploader" color="primary" class="mr-2">Subir Hoja</v-btn>
-        <v-btn to="/listado-hojas" color="secondary">Listado de Hojas</v-btn>
+        <v-btn to="/listado-hojas" color="secondary" class="mr-2">Listado de Hojas</v-btn>
+        <v-btn to="/monitor-procesos" color="info">Monitor de Procesos</v-btn>
       </v-col>
     </v-row>
   </v-container>

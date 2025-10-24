@@ -25,6 +25,12 @@
               Administrar de Hojas
             </v-list-item-title>
           </v-list-item>
+          <v-list-item to="/monitor-procesos">
+            <v-list-item-title>
+              <v-icon class="mr-2">mdi-monitor</v-icon>
+              Monitor de Procesos
+            </v-list-item-title>
+          </v-list-item>
         </v-list>
       </v-menu>
     </v-app-bar>

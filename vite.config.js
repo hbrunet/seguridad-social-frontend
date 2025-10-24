@@ -7,5 +7,13 @@ export default defineConfig({
   plugins: [
     vue(),
     vuetify({ autoImport: true })
-  ]
+  ],
+  optimizeDeps: {
+    include: ['vue', 'vue-router', 'vuetify'],
+    exclude: []
+  },
+  server: {
+    port: 3000,
+    open: true
+  }
 });

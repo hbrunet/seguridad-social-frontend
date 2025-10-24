@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Home from './components/Home.vue';
 import FileUploader from './components/FileUploader.vue';
 import ListadoHojas from './components/ListadoHojas.vue';
+import MonitorProcesos from './components/MonitorProcesos.vue';
 
 const routes = [
   {
@@ -19,6 +20,11 @@ const routes = [
     path: '/listado-hojas',
     name: 'ListadoHojas',
     component: ListadoHojas
+  },
+  {
+    path: '/monitor-procesos',
+    name: 'MonitorProcesos',
+    component: MonitorProcesos
   }
 ];
 
