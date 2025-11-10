@@ -43,6 +43,12 @@
               <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props"></v-btn>
             </template>
             <v-list>
+              <v-list-item @click="procesarHoja(item)" :disabled="!puedeProcesar(item)">
+                <v-list-item-title>
+                  <v-icon class="mr-2">mdi-cog</v-icon>
+                  Procesar
+                </v-list-item-title>
+              </v-list-item>
               <v-list-item @click="anularHoja(item)" :disabled="!puedeAnular(item)">
                 <v-list-item-title>
                   <v-icon class="mr-2">mdi-close-circle</v-icon>
@@ -67,12 +73,25 @@
       <v-alert v-if="error" type="error" class="mt-2">{{ error }}</v-alert>
     </v-card-text>
   </v-card>
+  
+  <!-- Notificaciones -->
+  <v-snackbar
+    v-model="snackbar.show"
+    :color="snackbar.color"
+    :timeout="4000"
+    location="top right"
+  >
+    {{ snackbar.message }}
+    <template v-slot:actions>
+      <v-btn variant="text" @click="snackbar.show = false">Cerrar</v-btn>
+    </template>
+  </v-snackbar>
 </template>
 
 <script setup>
 import { onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getHojas } from '../api/novedades.js';
+import { getHojas, procesarHoja as procesarHojaAPI, anularHoja as anularHojaAPI } from '../api/novedades.js';
 import { getEstadosHoja } from '../api/configuracion.js';
 import { getReparticiones } from '../api/configuracion.js';
 
@@ -100,6 +119,11 @@ const headers = [
 const page = ref(1);
 const itemsPerPage = ref(10);
 const totalItems = ref(0);
+const snackbar = ref({
+  show: false,
+  message: '',
+  color: 'info'
+});
 
 function formatPeriodo(value) {
   if (!value) return '';
@@ -189,14 +213,77 @@ async function buscarHojas() {
   }
 }
 
+function puedeProcesar(item) {
+  // Lógica: se puede procesar si está supervizada
+  return item.id_estado === 6
+}
+
 function puedeAnular(item) {
   // Lógica: se puede anular si no está procesada o anulada
   return item.id_estado !== 9 && item.id_estado !== 7;
 }
 
+function mostrarNotificacion(message, color = 'info') {
+  snackbar.value = {
+    show: true,
+    message,
+    color
+  };
+}
+
+async function procesarHoja(item) {
+  if (!confirm(`¿Desea procesar la hoja ${item.nro_hoja}?`)) return;
+  
+  loading.value = true;
+  error.value = '';
+  
+  try {
+    // Llamar al API para procesar la hoja
+    const resp = await procesarHojaAPI(item.id);
+    
+    if (resp.ok) {
+      // Mostrar mensaje de éxito
+      mostrarNotificacion(`Hoja ${item.nro_hoja} enviada a procesar correctamente`, 'success');
+      // Recargar la lista para ver el cambio de estado
+      await buscarHojas();
+    } else {
+      error.value = resp.message || 'Error al procesar la hoja.';
+      mostrarNotificacion(resp.message || 'Error al procesar la hoja.', 'error');
+    }
+  } catch (e) {
+    console.error('Error al procesar hoja:', e);
+    error.value = 'Error al procesar la hoja.';
+    mostrarNotificacion('Error al procesar la hoja.', 'error');
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function anularHoja(item) {
   if (!confirm(`¿Desea anular la hoja ${item.nro_hoja}?`)) return;
-  // TODO: Implementar API para anular
-  console.log('Anular hoja:', item);
+  
+  loading.value = true;
+  error.value = '';
+  
+  try {
+    // Llamar al API para anular la hoja
+    const resp = await anularHojaAPI(item.id);
+
+    if (resp.ok) {
+      // Mostrar mensaje de éxito
+      mostrarNotificacion(`Hoja ${item.nro_hoja} anulada correctamente`, 'success');
+      // Recargar la lista para ver el cambio de estado
+      await buscarHojas();
+    } else {
+      error.value = resp.message || 'Error al anular la hoja.';
+      mostrarNotificacion(resp.message || 'Error al anular la hoja.', 'error');
+    }
+  } catch (e) {
+    console.error('Error al anular hoja:', e);
+    error.value = 'Error al anular la hoja.';
+    mostrarNotificacion('Error al anular la hoja.', 'error');
+  } finally {
+    loading.value = false;
+  }
 }
 </script>

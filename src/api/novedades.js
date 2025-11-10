@@ -4,6 +4,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 const UPLOAD_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/upload';
 const CREAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/crear-hoja';
 const LISTADO_HOJAS_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/listado-hojas';
+const PROCESAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/procesar-hoja';
+const ANULAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/anular-hoja';
 
 // Obtener listado de hojas con filtros
 export async function getHojas({ nroHoja, periodo, estado, reparticion, page, pageSize, sort, order } = {}) {
@@ -73,6 +75,28 @@ export async function crearHoja(body, baseUrl) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
+  });
+  return normalizeFetchResponse(resp);
+}
+
+// Procesar una hoja específica
+export async function procesarHoja(id, baseUrl) {
+  const baseUrlFinal = baseUrl || PROCESAR_HOJA_URL;
+  const url = `${baseUrlFinal}/${id}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  return normalizeFetchResponse(resp);
+}
+
+// Anular una hoja específica
+export async function anularHoja(id, baseUrl) {
+  const baseUrlFinal = baseUrl || ANULAR_HOJA_URL;
+  const url = `${baseUrlFinal}/${id}`;
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }
   });
   return normalizeFetchResponse(resp);
 }
