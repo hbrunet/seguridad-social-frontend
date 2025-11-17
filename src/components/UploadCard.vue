@@ -7,32 +7,8 @@
         <v-card-text>
             <v-file-input :model-value="localFile" label="Seleccionar archivo" show-size :disabled="uploading"
                 @update:modelValue="$emit('file-change', $event)" prepend-icon="mdi-paperclip"></v-file-input>
-            <div v-if="file" class="mt-2">Archivo: {{ file.name }}</div>
 
             <v-alert v-if="uploadError" type="error" class="mt-2">{{ uploadError }}</v-alert>
-            <v-alert v-if="uploadInfo" type="success" class="mt-2">
-                <div>{{ uploadInfo }}</div>
-                <v-table v-if="uploadDetails" density="compact" class="mt-2" theme="dark">
-                    <tbody>
-                        <tr>
-                            <td class="text-left">Empleados en Nómina:</td>
-                            <td class="text-right font-weight-bold">{{ uploadDetails.empleados }}</td>
-                        </tr>
-                        <tr>
-                            <td class="text-left">Suma de Rem. 1:</td>
-                            <td class="text-right font-weight-bold">{{ uploadDetails.rem1 }}</td>
-                        </tr>
-                        <tr>
-                            <td class="text-left">Suma de Rem. 2:</td>
-                            <td class="text-right font-weight-bold">{{ uploadDetails.rem2 }}</td>
-                        </tr>
-                        <tr>
-                            <td class="text-left">Suma de Rem. 3:</td>
-                            <td class="text-right font-weight-bold">{{ uploadDetails.rem3 }}</td>
-                        </tr>
-                    </tbody>
-                </v-table>
-            </v-alert>
         </v-card-text>
         <v-card-actions>
             <v-spacer></v-spacer>
@@ -50,7 +26,13 @@
 
 <script setup>
 import { ref, watch } from 'vue';
-const props = defineProps({ file: Object, uploading: Boolean, uploadError: String, uploadInfo: String, uploadDetails: Object, uploaded: Boolean, creating: Boolean });
+const props = defineProps({ 
+  file: Object, 
+  uploading: Boolean, 
+  uploadError: String, 
+  uploaded: Boolean, 
+  creating: Boolean 
+});
 const localFile = ref(props.file);
 watch(() => props.file, (v) => (localFile.value = v));
 </script>

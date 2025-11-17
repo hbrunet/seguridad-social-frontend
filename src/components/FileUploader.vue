@@ -1,20 +1,142 @@
 <template>
-  <UploadCard :file="file" :uploading="uploading" :uploadError="uploadError" :uploadInfo="uploadInfo"
-    :uploadDetails="uploadDetails" :uploaded="uploaded" :creating="creating" @file-change="onFileChange" @upload="uploadFile" />
+  <v-container>
+    <v-card class="mx-auto my-4" max-width="1200">
+      <v-card-title>
+        <v-icon class="mr-2">mdi-file-upload</v-icon>
+        Carga de Archivo de Novedades
+      </v-card-title>
+      
+      <v-card-text>
+        <!-- Mostrar nombre del archivo si está seleccionado -->
+        <v-card 
+          v-if="file" 
+          variant="outlined" 
+          class="mb-4 bg-blue-lighten-5"
+        >
+          <v-card-text class="py-3">
+            <v-row align="center" no-gutters>
+              <v-col cols="auto">
+                <v-avatar color="primary" size="40">
+                  <v-icon color="white">mdi-file-document</v-icon>
+                </v-avatar>
+              </v-col>
+              <v-col class="ml-3">
+                <div class="text-subtitle-1 font-weight-medium">{{ file.name }}</div>
+                <div class="text-caption text-grey">
+                  <v-icon size="small" class="mr-1">mdi-file-outline</v-icon>
+                  {{ formatFileSize(file.size) }}
+                  <span class="mx-2">•</span>
+                  <v-icon size="small" class="mr-1">mdi-calendar</v-icon>
+                  {{ new Date().toLocaleDateString() }}
+                </div>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
 
-  <CreateCard v-if="uploaded" :periodo="periodo" :periodoInvalid="periodoInvalid" :selectedRep="selectedRep"
-    :reparticiones="reparticiones" :repInvalid="repInvalid" :tiposLiquidacion="tiposLiquidacion"
-    :selectedTipoLiquidacion="selectedTipoLiquidacion" :tipoInvalid="tipoInvalid" :createError="createError"
-    :createInfo="createInfo" :creating="creating" :canCreate="canCreate" :created="created" @back="goBack"
-    @create="crearHojaNovedades" @finalize="finalizar" @update:periodo="setPeriodo" @update:selectedRep="setSelectedRep"
-    @update:selectedTipoLiquidacion="setSelectedTipoLiquidacion" />
+        <!-- Stepper para mostrar los 3 pasos -->
+        <v-stepper v-model="currentStep" alt-labels>
+          <v-stepper-header>
+            <v-stepper-item
+              :complete="currentStep > 1"
+              :value="1"
+              title="Subir Archivo"
+              :color="currentStep >= 1 ? 'primary' : ''"
+            >
+              <template v-slot:icon>
+                <v-icon>mdi-upload</v-icon>
+              </template>
+            </v-stepper-item>
 
+            <v-divider></v-divider>
+
+            <v-stepper-item
+              :complete="currentStep > 2"
+              :value="2"
+              title="Validar Datos"
+              :color="currentStep >= 2 ? 'primary' : ''"
+              :disabled="!uploaded"
+            >
+              <template v-slot:icon>
+                <v-icon>mdi-shield-check</v-icon>
+              </template>
+            </v-stepper-item>
+
+            <v-divider></v-divider>
+
+            <v-stepper-item
+              :value="3"
+              title="Crear Hoja"
+              :color="currentStep >= 3 ? 'primary' : ''"
+              :disabled="!validated"
+            >
+              <template v-slot:icon>
+                <v-icon>mdi-file-document-plus</v-icon>
+              </template>
+            </v-stepper-item>
+          </v-stepper-header>
+
+          <v-stepper-window>
+            <!-- Paso 1: Subir Archivo -->
+            <v-stepper-window-item :value="1">
+              <UploadCard 
+                :file="file" 
+                :uploading="uploading" 
+                :uploadError="uploadError" 
+                :uploaded="uploaded" 
+                :creating="creating" 
+                @file-change="onFileChange" 
+                @upload="uploadFile" 
+              />
+            </v-stepper-window-item>
+
+            <!-- Paso 2: Validar -->
+            <v-stepper-window-item :value="2">
+              <ValidateCard 
+                :uploadDetails="uploadDetails"
+                :idArchivo="uploadedFile.id_archivo"
+                :flowId="uploadedFile.flow_id"
+                @back="goToStep(1)"
+                @continue="onValidationComplete"
+              />
+            </v-stepper-window-item>
+
+            <!-- Paso 3: Crear Hoja -->
+            <v-stepper-window-item :value="3">
+              <CreateCard 
+                :periodo="periodo" 
+                :periodoInvalid="periodoInvalid" 
+                :selectedRep="selectedRep"
+                :reparticiones="reparticiones" 
+                :repInvalid="repInvalid" 
+                :tiposLiquidacion="tiposLiquidacion"
+                :selectedTipoLiquidacion="selectedTipoLiquidacion" 
+                :tipoInvalid="tipoInvalid" 
+                :createError="createError"
+                :createInfo="createInfo" 
+                :creating="creating" 
+                :canCreate="canCreate" 
+                :created="created" 
+                @back="goToStep(2)"
+                @create="crearHojaNovedades" 
+                @finalize="finalizar" 
+                @update:periodo="setPeriodo" 
+                @update:selectedRep="setSelectedRep"
+                @update:selectedTipoLiquidacion="setSelectedTipoLiquidacion" 
+              />
+            </v-stepper-window-item>
+          </v-stepper-window>
+        </v-stepper>
+      </v-card-text>
+    </v-card>
+  </v-container>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import UploadCard from './UploadCard.vue';
+import ValidateCard from './ValidateCard.vue';
 import CreateCard from './CreateCard.vue';
 
 const MAX_SIZE_MB = 70;
@@ -32,6 +154,8 @@ const uploadInfo = ref('');
 const uploadDetails = ref(null);
 const createInfo = ref('');
 const uploaded = ref(false);
+const validated = ref(false);
+const validationResults = ref(null);
 const uploadedFile = {
   id_archivo: 0,
   cantidad_registros: 0
@@ -46,6 +170,9 @@ const created = ref(false);
 const nroHojaCreada = ref(null);
 
 const router = useRouter();
+
+// Control del stepper
+const currentStep = ref(1);
 
 // Validación para habilitar el botón Crear
 const canCreate = computed(() => {
@@ -63,15 +190,35 @@ onMounted(() => {
   loadOptions();
 });
 
-function goBack() {
-  // volver a la tarjeta de subida
-  uploaded.value = false;
-  createError.value = '';
-  createInfo.value = '';
-  // reset file input component if available
-  if (fileInputRef.value && typeof fileInputRef.value.reset === 'function') {
-    fileInputRef.value.reset();
+function goToStep(step) {
+  currentStep.value = step;
+  
+  // Limpiar todo al volver al paso 1 (permitir subir nuevo archivo)
+  if (step === 1) {
+    file.value = null;
+    uploadError.value = '';
+    uploadInfo.value = '';
+    uploadDetails.value = null;
+    uploaded.value = false;
+    validated.value = false;
+    validationResults.value = null;
+    uploadedFile.id_archivo = 0;
+    uploadedFile.cantidad_registros = 0;
+    uploadedFile.flow_id = null;
   }
+  
+  // Limpiar errores de creación al volver al paso 2
+  if (step === 2) {
+    createError.value = '';
+    createInfo.value = '';
+  }
+}
+
+function onValidationComplete(results) {
+  // Guardar resultados de validación y avanzar al paso 3
+  validationResults.value = results;
+  validated.value = true;
+  currentStep.value = 3;
 }
 
 function finalizar() {
@@ -79,11 +226,14 @@ function finalizar() {
   const nroHoja = nroHojaCreada.value;
   
   // limpiar todo y volver al estado inicial
+  currentStep.value = 1;
   file.value = null;
   uploadError.value = '';
   uploadInfo.value = '';
   uploadDetails.value = null;
   uploaded.value = false;
+  validated.value = false;
+  validationResults.value = null;
   uploadedFile.id_archivo = 0;
   uploadedFile.cantidad_registros = 0;
   periodo.value = '';
@@ -166,9 +316,22 @@ function setSelectedTipoLiquidacion(v) {
   selectedTipoLiquidacion.value = v != null ? String(v) : null;
 }
 
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  const kb = bytes / 1024;
+  if (kb < 1024) return kb.toFixed(1) + ' KB';
+  const mb = kb / 1024;
+  return mb.toFixed(1) + ' MB';
+}
+
 async function uploadFile() {
   if (!file.value) return;
   uploading.value = true;
+  
+  // Limpiar resultados de validación anteriores
+  validated.value = false;
+  validationResults.value = null;
+  
   const formData = new FormData();
   formData.append('file', file.value);
   formData.append('tipoNovedad', '156');
@@ -186,12 +349,17 @@ async function uploadFile() {
           empleados: resp.data.cantidad_registros,
           rem1: formatAmount(resp.data.sum_rem1),
           rem2: formatAmount(resp.data.sum_rem2),
-          rem3: formatAmount(resp.data.sum_rem3)
+          rem3: formatAmount(resp.data.sum_rem3),
+          nombre_archivo: file.value.name,
+          cantidad_registros: resp.data.cantidad_registros
         };
         uploaded.value = true;
         uploadedFile.id_archivo = resp.data.id_archivo;
         uploadedFile.cantidad_registros = resp.data.cantidad_registros;
         uploadedFile.flow_id = resp.data.flow_id;
+        
+        // Avanzar automáticamente al paso 2 (Validación)
+        currentStep.value = 2;
       } else {
         uploadError.value = `Error al subir archivo: ${resp.message || JSON.stringify(resp.data) || 'unknown'}`;
         uploaded.value = false;

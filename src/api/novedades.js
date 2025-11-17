@@ -6,6 +6,7 @@ const CREAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/nov
 const LISTADO_HOJAS_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/listado-hojas';
 const PROCESAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/procesar-hoja';
 const ANULAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/anular-hoja';
+const VALIDAR_ARCHIVO_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/validar-archivo';
 
 // Obtener listado de hojas con filtros
 export async function getHojas({ nroHoja, periodo, estado, reparticion, page, pageSize, sort, order } = {}) {
@@ -91,11 +92,25 @@ export async function procesarHoja(id, baseUrl) {
 }
 
 // Anular una hoja específica
-export async function anularHoja(id, baseUrl) {
+export async function anularHoja(nroHoja, baseUrl) {
   const baseUrlFinal = baseUrl || ANULAR_HOJA_URL;
-  const url = `${baseUrlFinal}/${id}`;
+  const url = `${baseUrlFinal}/${nroHoja}`;
   const resp = await fetch(url, {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  return normalizeFetchResponse(resp);
+}
+
+// Validar archivo subido
+export async function validarArchivo(idArchivo, flowId, baseUrl) {
+  const baseUrlFinal = baseUrl || VALIDAR_ARCHIVO_URL;
+  let url = `${baseUrlFinal}/${idArchivo}`;
+  if (flowId) {
+    url += `?flowId=${encodeURIComponent(flowId)}`;
+  }
+  const resp = await fetch(url, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
   return normalizeFetchResponse(resp);
