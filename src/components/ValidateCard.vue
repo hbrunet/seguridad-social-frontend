@@ -256,7 +256,8 @@ import { generarReporteValidacionHTML } from '../utils/reporteValidacion.js';
 const props = defineProps({
   uploadDetails: {
     type: Object,
-    required: true
+    required: false,
+    default: () => ({})
   },
   idArchivo: {
     type: Number,
