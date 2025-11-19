@@ -109,6 +109,7 @@ const reparticiones = ref([]);
 const headers = [
   { title: 'Número', value: 'nro_hoja', sortable: false, align: 'end' },
   { title: 'Periodo', value: 'periodo', sortable: false },
+  { title: 'Rep.', value: 'id_rep', sortable: false, align: 'end' },
   { title: 'Tipo', value: 'tipo_liquidacion', sortable: false },
   { title: 'Rectificativa', value: 'id_grupo_adicional', sortable: false, align: 'end' },
   { title: 'Estado', value: 'estado', sortable: false },

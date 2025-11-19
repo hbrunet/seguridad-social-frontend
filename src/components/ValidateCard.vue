@@ -22,7 +22,7 @@
                   </template>
                   <v-list-item-title>Cantidad de agentes</v-list-item-title>
                   <v-list-item-subtitle class="text-h6 text-primary">
-                    {{ formatAmount(uploadDetails?.empleados || uploadDetails?.cantidad_registros || 0) }}
+                    {{ uploadDetails?.empleados || uploadDetails?.cantidad_registros || 0 }}
                   </v-list-item-subtitle>
                 </v-list-item>
               </v-list>
@@ -97,9 +97,20 @@
         <div v-if="validationResults">
           <!-- Resumen de validación -->
           <v-card variant="outlined" class="mb-4">
-            <v-card-title class="text-h6">
+            <v-card-title class="text-h6 d-flex align-center">
               <v-icon class="mr-2">mdi-chart-bar</v-icon>
               Resumen de Validación
+              <v-spacer></v-spacer>
+              <v-btn
+                v-if="hasErrors || hasWarnings"
+                color="primary"
+                variant="outlined"
+                size="small"
+                @click="imprimirReporte"
+              >
+                <v-icon class="mr-2">mdi-printer</v-icon>
+                Imprimir Reporte
+              </v-btn>
             </v-card-title>
             <v-card-text>
               <v-row>
@@ -150,7 +161,7 @@
                   <template v-slot:prepend>
                     <v-icon color="error">mdi-close-circle</v-icon>
                   </template>
-                  <v-list-item-title>{{ error.mensaje || error.message }}</v-list-item-title>
+                  <v-list-item-title>{{ error.mensaje }}</v-list-item-title>
                   <v-list-item-subtitle v-if="error.linea">
                     Línea: {{ error.linea }} 
                     <span v-if="error.columna">| Columna: {{ error.columna }}</span>
@@ -176,7 +187,7 @@
                   <template v-slot:prepend>
                     <v-icon color="warning">mdi-alert</v-icon>
                   </template>
-                  <v-list-item-title>{{ warning.mensaje || warning.message }}</v-list-item-title>
+                  <v-list-item-title>{{ warning.mensaje }}</v-list-item-title>
                   <v-list-item-subtitle v-if="warning.linea">
                     Línea: {{ warning.linea }}
                     <span v-if="warning.columna">| Columna: {{ warning.columna }}</span>
@@ -239,6 +250,7 @@
 import { ref, computed, watch } from 'vue';
 import { formatAmount } from '../utils/formatNumber.js';
 import { validarArchivo } from '../api/novedades.js';
+import { generarReporteValidacionHTML } from '../utils/reporteValidacion.js';
 
 // Props
 const props = defineProps({
@@ -318,6 +330,27 @@ async function validateData() {
   } finally {
     validating.value = false;
   }
+}
+
+function imprimirReporte() {
+  // Crear ventana de impresión con estilos
+  const printWindow = window.open('', '_blank');
+  
+  const contenidoHTML = generarReporteValidacionHTML(
+    props.uploadDetails,
+    validationResults.value,
+    hasErrors.value,
+    hasWarnings.value
+  );
+  
+  printWindow.document.write(contenidoHTML);
+  printWindow.document.close();
+  
+  // Esperar a que se cargue el contenido antes de imprimir
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 }
 </script>
 
