@@ -8,7 +8,7 @@
     <v-card-text>
       <!-- Panel de Control -->
       <v-row class="mb-4">
-        <v-col cols="12" md="4">
+        <v-col cols="12" md="3">
           <v-select
             v-model="tipoProceso"
             :items="tiposProceso"
@@ -19,29 +19,29 @@
           ></v-select>
         </v-col>
         <v-col cols="12" md="3">
+          <v-text-field
+            v-model="periodo"
+            label="Período"
+            type="month"
+            clearable
+            density="compact"
+          ></v-text-field>
+        </v-col>
+        <v-col cols="12" md="2">
           <v-btn 
             color="primary" 
             @click="iniciarProceso"
-            :disabled="!tipoProceso || procesando"
+            :disabled="!tipoProceso || !periodo || procesando"
             prepend-icon="mdi-play"
+            block
           >
             Iniciar Proceso
           </v-btn>
         </v-col>
         <v-col cols="12" md="3">
-          <v-btn 
-            color="orange" 
-            @click="detenerTodos"
-            :disabled="!hayProcesosActivos"
-            prepend-icon="mdi-stop"
-          >
-            Detener Todos
-          </v-btn>
-        </v-col>
-        <v-col cols="12" md="2">
           <v-switch
             v-model="autoRefresh"
-            label="Auto Refresh"
+            label="Auto Refresh (cada 3s)"
             color="success"
             @change="toggleAutoRefresh"
           ></v-switch>
@@ -65,15 +65,6 @@
               <v-icon size="24" class="mb-2">mdi-cog</v-icon>
               <div class="text-h6">{{ estadisticas.ejecutando }}</div>
               <div class="text-caption">Ejecutando</div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-        <v-col cols="12" md="3">
-          <v-card color="warning" variant="tonal">
-            <v-card-text class="text-center">
-              <v-icon size="24" class="mb-2">mdi-pause-circle</v-icon>
-              <div class="text-h6">{{ estadisticas.pausados }}</div>
-              <div class="text-caption">Pausados</div>
             </v-card-text>
           </v-card>
         </v-col>
@@ -123,6 +114,13 @@
           {{ formatTiempo(item.tiempoTranscurrido) }}
         </template>
 
+        <template v-slot:[`item.jobId`]="{ item }">
+          <v-chip v-if="item.jobId" size="x-small" color="info" variant="outlined">
+            {{ item.jobId.substring(0, 8) }}...
+          </v-chip>
+          <span v-else class="text-grey">-</span>
+        </template>
+
         <template v-slot:[`item.fechaInicio`]="{ item }">
           {{ formatFecha(item.fechaInicio) }}
         </template>
@@ -139,30 +137,12 @@
             </template>
             <v-list>
               <v-list-item 
-                @click="pausarProceso(item)" 
+                @click="cancelarProceso(item)" 
                 :disabled="item.estado !== ESTADOS_PROCESO.EJECUTANDO"
               >
                 <v-list-item-title>
-                  <v-icon class="mr-2">mdi-pause</v-icon>
-                  Pausar
-                </v-list-item-title>
-              </v-list-item>
-              <v-list-item 
-                @click="reanudarProceso(item)" 
-                :disabled="item.estado !== ESTADOS_PROCESO.PAUSADO"
-              >
-                <v-list-item-title>
-                  <v-icon class="mr-2">mdi-play</v-icon>
-                  Reanudar
-                </v-list-item-title>
-              </v-list-item>
-              <v-list-item 
-                @click="detenerProceso(item)" 
-                :disabled="![ESTADOS_PROCESO.EJECUTANDO, ESTADOS_PROCESO.PAUSADO].includes(item.estado)"
-              >
-                <v-list-item-title>
-                  <v-icon class="mr-2">mdi-stop</v-icon>
-                  Detener
+                  <v-icon class="mr-2">mdi-cancel</v-icon>
+                  Cancelar
                 </v-list-item-title>
               </v-list-item>
               <v-list-item @click="verDetalles(item)">
@@ -201,21 +181,33 @@
               <v-col cols="6">
                 <strong>Tipo:</strong> {{ procesoSeleccionado.tipo }}
               </v-col>
+              <v-col cols="12" v-if="procesoSeleccionado.jobId">
+                <strong>Job ID (Backend):</strong> 
+                <v-chip size="small" color="info" class="ml-2">{{ procesoSeleccionado.jobId }}</v-chip>
+              </v-col>
               <v-col cols="6">
                 <strong>Estado:</strong> {{ procesoSeleccionado.estado }}
               </v-col>
               <v-col cols="6">
                 <strong>Progreso:</strong> {{ procesoSeleccionado.progreso }}%
               </v-col>
-              <v-col cols="6">
-                <strong>CPU:</strong> {{ procesoSeleccionado.cpu }}%
-              </v-col>
-              <v-col cols="6">
-                <strong>Memoria:</strong> {{ procesoSeleccionado.memoria }}MB
-              </v-col>
               <v-col cols="12">
                 <strong>Descripción:</strong>
                 <p class="mt-2">{{ procesoSeleccionado.descripcion }}</p>
+              </v-col>
+              <v-col cols="12" v-if="procesoSeleccionado.parametros">
+                <strong>Parámetros:</strong>
+                <pre class="mt-2 pa-2 bg-grey-lighten-4 rounded">{{ JSON.stringify(procesoSeleccionado.parametros, null, 2) }}</pre>
+              </v-col>
+              <v-col cols="12" v-if="procesoSeleccionado.logs && procesoSeleccionado.logs.length > 0">
+                <strong>Logs:</strong>
+                <v-card variant="outlined" class="mt-2" max-height="200" style="overflow-y: auto;">
+                  <v-card-text>
+                    <div v-for="(log, idx) in procesoSeleccionado.logs" :key="idx" class="text-caption mb-1">
+                      {{ log }}
+                    </div>
+                  </v-card-text>
+                </v-card>
               </v-col>
               <v-col cols="12" v-if="procesoSeleccionado.error">
                 <strong>Error:</strong>
@@ -251,9 +243,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { 
   getProcesos, 
   iniciarProceso as iniciarProcesoAPI, 
-  pausarProceso as pausarProcesoAPI,
-  reanudarProceso as reanudarProcesoAPI,
-  detenerProceso as detenerProcesoAPI,
+  cancelarProceso as cancelarProcesoAPI,
   eliminarProceso as eliminarProcesoAPI,
   getDetalleProceso,
   configuracionProcesos,
@@ -269,6 +259,7 @@ const autoRefresh = ref(true);
 const dialogDetalles = ref(false);
 const procesoSeleccionado = ref(null);
 const tipoProceso = ref(null);
+const periodo = ref(new Date().toISOString().substring(0, 7)); // Formato YYYY-MM por defecto
 
 // Configuración
 const refreshInterval = ref(null);
@@ -292,14 +283,13 @@ const tiposProceso = ref(
 
 // Headers de la tabla
 const headers = [
-  { title: 'ID', value: 'id', sortable: false, width: '80px' },
+  { title: 'ID', value: 'id', sortable: false, width: '60px' },
   { title: 'Nombre', value: 'nombre', sortable: false },
   { title: 'Tipo', value: 'tipo', sortable: false },
   { title: 'Estado', value: 'estado', sortable: false, width: '120px' },
   { title: 'Progreso', value: 'progreso', sortable: false, width: '150px' },
   { title: 'Tiempo', value: 'tiempoTranscurrido', sortable: false, width: '100px' },
-  { title: 'CPU %', value: 'cpu', sortable: false, width: '80px' },
-  { title: 'Memoria', value: 'memoria', sortable: false, width: '100px' },
+  { title: 'Job ID', value: 'jobId', sortable: false, width: '120px' },
   { title: 'Inicio', value: 'fechaInicio', sortable: false, width: '130px' },
   { title: 'Acciones', value: 'acciones', sortable: false, width: '80px' }
 ];
@@ -309,34 +299,29 @@ const estadisticas = computed(() => {
   return {
     completados: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.COMPLETADO).length,
     ejecutando: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.EJECUTANDO).length,
-    pausados: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.PAUSADO).length,
     errores: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.ERROR).length
   };
-});
-
-const hayProcesosActivos = computed(() => {
-  return procesos.value.some(p => [ESTADOS_PROCESO.EJECUTANDO, ESTADOS_PROCESO.PAUSADO].includes(p.estado));
 });
 
 // Funciones de utilidad
 function getEstadoColor(estado) {
   const colores = {
+    [ESTADOS_PROCESO.PENDIENTE]: 'info',
     [ESTADOS_PROCESO.EJECUTANDO]: 'primary',
-    [ESTADOS_PROCESO.PAUSADO]: 'warning',
     [ESTADOS_PROCESO.COMPLETADO]: 'success',
     [ESTADOS_PROCESO.ERROR]: 'error',
-    [ESTADOS_PROCESO.DETENIDO]: 'grey'
+    [ESTADOS_PROCESO.CANCELADO]: 'grey'
   };
   return colores[estado] || 'grey';
 }
 
 function getEstadoIcon(estado) {
   const iconos = {
+    [ESTADOS_PROCESO.PENDIENTE]: 'mdi-clock-outline',
     [ESTADOS_PROCESO.EJECUTANDO]: 'mdi-cog',
-    [ESTADOS_PROCESO.PAUSADO]: 'mdi-pause-circle',
     [ESTADOS_PROCESO.COMPLETADO]: 'mdi-check-circle',
     [ESTADOS_PROCESO.ERROR]: 'mdi-alert-circle',
-    [ESTADOS_PROCESO.DETENIDO]: 'mdi-stop-circle'
+    [ESTADOS_PROCESO.CANCELADO]: 'mdi-cancel'
   };
   return iconos[estado] || 'mdi-help-circle';
 }
@@ -378,12 +363,20 @@ async function iniciarProceso() {
   procesando.value = true;
   
   try {
-    const resp = await iniciarProcesoAPI(tipoProceso.value);
+    // Preparar parámetros incluyendo el período
+    const parametros = {
+      periodo: periodo.value || new Date().toISOString().substring(0, 7)
+    };
+    
+    console.log('Iniciando proceso con período:', parametros.periodo);
+    
+    const resp = await iniciarProcesoAPI(tipoProceso.value, parametros);
     
     if (resp.ok) {
       await cargarProcesos(); // Recargar la lista
       mostrarNotificacion(`Proceso iniciado: ${resp.data.nombre}`, 'success');
-      tipoProceso.value = null;
+      // No limpiar el tipo de proceso para facilitar pruebas repetidas
+      // tipoProceso.value = null;
     } else {
       mostrarNotificacion(`Error: ${resp.message}`, 'error');
     }
@@ -395,67 +388,18 @@ async function iniciarProceso() {
   }
 }
 
-
-
-async function pausarProceso(proceso) {
+async function cancelarProceso(proceso) {
   try {
-    const resp = await pausarProcesoAPI(proceso.id);
+    const resp = await cancelarProcesoAPI(proceso.id);
     if (resp.ok) {
       await cargarProcesos();
-      mostrarNotificacion(`Proceso pausado: ${proceso.nombre}`, 'warning');
+      mostrarNotificacion(`Proceso cancelado: ${proceso.nombre}`, 'warning');
     } else {
       mostrarNotificacion(`Error: ${resp.message}`, 'error');
     }
   } catch (error) {
-    console.error('Error al pausar proceso:', error);
-    mostrarNotificacion('Error al pausar el proceso', 'error');
-  }
-}
-
-async function reanudarProceso(proceso) {
-  try {
-    const resp = await reanudarProcesoAPI(proceso.id);
-    if (resp.ok) {
-      await cargarProcesos();
-      mostrarNotificacion(`Proceso reanudado: ${proceso.nombre}`, 'info');
-    } else {
-      mostrarNotificacion(`Error: ${resp.message}`, 'error');
-    }
-  } catch (error) {
-    console.error('Error al reanudar proceso:', error);
-    mostrarNotificacion('Error al reanudar el proceso', 'error');
-  }
-}
-
-async function detenerProceso(proceso) {
-  try {
-    const resp = await detenerProcesoAPI(proceso.id);
-    if (resp.ok) {
-      await cargarProcesos();
-      mostrarNotificacion(`Proceso detenido: ${proceso.nombre}`, 'warning');
-    } else {
-      mostrarNotificacion(`Error: ${resp.message}`, 'error');
-    }
-  } catch (error) {
-    console.error('Error al detener proceso:', error);
-    mostrarNotificacion('Error al detener el proceso', 'error');
-  }
-}
-
-async function detenerTodos() {
-  const procesosActivos = procesos.value.filter(p => 
-    [ESTADOS_PROCESO.EJECUTANDO, ESTADOS_PROCESO.PAUSADO].includes(p.estado)
-  );
-  
-  try {
-    const promesas = procesosActivos.map(proceso => detenerProcesoAPI(proceso.id));
-    await Promise.all(promesas);
-    
-    await cargarProcesos();
-    mostrarNotificacion(`${procesosActivos.length} procesos detenidos`, 'warning');
-  } catch (error) {
-    console.error('Error al detener procesos:', error);
-    mostrarNotificacion('Error al detener algunos procesos', 'error');
+    console.error('Error al cancelar proceso:', error);
+    mostrarNotificacion('Error al cancelar el proceso', 'error');
   }
 }
 

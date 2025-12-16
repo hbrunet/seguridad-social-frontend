@@ -1,75 +1,61 @@
-// API simulada para el monitoreo de procesos background
-const BASE_URL = 'http://localhost:8000/api'; // Cambiar por la URL real de tu backend
+// API para el monitoreo de procesos background
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
-// Simulación de datos mientras no tengamos backend real
-let procesosSimulados = [];
+// Cache local de procesos
+let procesosCache = [];
 let procesoIdCounter = 1;
+let pollingIntervals = {}; // Almacenar intervalos de polling por job_id
 
-// Tipos de proceso disponibles
+// Tipos de proceso disponibles (ahora incluye tests reales)
 export const TIPOS_PROCESO = {
-  IMPORTACION: 'importacion',
-  VALIDACION: 'validacion', 
-  CALCULO: 'calculo',
-  REPORTE: 'reporte',
-  BACKUP: 'backup'
+  FUSIONAR_DATOS: 'fusionar-datos',
+  TEST_FUSION_QUICK_ASYNC: 'test-fusion-quick-async',
+  TEST_FUSION_SLOW_ASYNC: 'test-fusion-slow-async',
 };
 
 // Estados de proceso
 export const ESTADOS_PROCESO = {
+  PENDIENTE: 'Pendiente',
   EJECUTANDO: 'Ejecutando',
   PAUSADO: 'Pausado',
   COMPLETADO: 'Completado',
   ERROR: 'Error',
-  DETENIDO: 'Detenido'
+  CANCELADO: 'Cancelado'
 };
 
 // Configuración de tipos de proceso
 export const configuracionProcesos = {
-  [TIPOS_PROCESO.IMPORTACION]: {
-    nombre: 'Importación de Datos',
+  // Nuevas configuraciones para tests reales
+  [TIPOS_PROCESO.FUSIONAR_DATOS]: {
+    nombre: 'Fusión de Datos',
+    duracion: 600000, // 10 minutos
+    descripcion: 'Proceso de fusión de datos en el sistema backend',
+    endpoint: '/ddjj/fusionar-datos',
+    isAsync: true
+  },
+  [TIPOS_PROCESO.TEST_FUSION_QUICK_ASYNC]: {
+    nombre: 'Test Fusión Rápido (Asíncrono)',
     duracion: 30000, // 30 segundos
-    descripcion: 'Importa archivos de novedades y los procesa'
+    descripcion: 'Test rápido asíncrono con progreso - 30 segundos',
+    endpoint: '/testing/fusion-quick-async',
+    isAsync: true
   },
-  [TIPOS_PROCESO.VALIDACION]: {
-    nombre: 'Validación de Hojas',
-    duracion: 15000, // 15 segundos
-    descripcion: 'Valida la integridad de las hojas de liquidación'
-  },
-  [TIPOS_PROCESO.CALCULO]: {
-    nombre: 'Cálculo de Liquidación',
-    duracion: 45000, // 45 segundos
-    descripcion: 'Ejecuta los cálculos de liquidación de haberes'
-  },
-  [TIPOS_PROCESO.REPORTE]: {
-    nombre: 'Generación de Reportes',
-    duracion: 20000, // 20 segundos
-    descripcion: 'Genera reportes estadísticos y de control'
-  },
-  [TIPOS_PROCESO.BACKUP]: {
-    nombre: 'Backup de Sistema',
-    duracion: 60000, // 60 segundos
-    descripcion: 'Realiza backup completo de la base de datos'
+  [TIPOS_PROCESO.TEST_FUSION_SLOW_ASYNC]: {
+    nombre: 'Test Fusión Lento (Asíncrono)',
+    duracion: 120000, // 2 minutos
+    descripcion: 'Test lento asíncrono simula proceso real - 2 minutos',
+    endpoint: '/testing/fusion-slow-async',
+    isAsync: true
   }
 };
-
-// Función helper para simular delay de red
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Función helper para respuesta simulada
-const crearRespuesta = (data, ok = true, message = '') => ({
-  ok,
-  data,
-  message
-});
 
 /**
  * Obtiene la lista de todos los procesos
  */
 export async function getProcesos(filtros = {}) {
-  await delay(300); // Simular latencia de red
-  
   try {
-    let procesosFiltered = [...procesosSimulados];
+    // Devolver procesos del cache local
+    let procesosFiltered = [...procesosCache];
     
     // Aplicar filtros si existen
     if (filtros.estado) {
@@ -83,15 +69,17 @@ export async function getProcesos(filtros = {}) {
     // Ordenar por fecha de inicio (más recientes primero)
     procesosFiltered.sort((a, b) => new Date(b.fechaInicio) - new Date(a.fechaInicio));
     
-    return crearRespuesta({
-      procesos: procesosFiltered,
-      total: procesosFiltered.length,
-      estadisticas: calcularEstadisticas(procesosFiltered)
-    });
+    return {
+      ok: true,
+      data: {
+        procesos: procesosFiltered,
+        total: procesosFiltered.length
+      }
+    };
     
   } catch (error) {
     console.error('Error al obtener procesos:', error);
-    return crearRespuesta(null, false, 'Error al obtener la lista de procesos');
+    return { ok: false, error: error.message };
   }
 }
 
@@ -99,12 +87,10 @@ export async function getProcesos(filtros = {}) {
  * Inicia un nuevo proceso
  */
 export async function iniciarProceso(tipoProceso, parametros = {}) {
-  await delay(500); // Simular procesamiento
-  
   try {
     const config = configuracionProcesos[tipoProceso];
     if (!config) {
-      return crearRespuesta(null, false, 'Tipo de proceso no válido');
+      return { ok: false, error: 'Tipo de proceso no válido' };
     }
     
     const nuevoProceso = {
@@ -114,8 +100,6 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
       tipoProceso: tipoProceso,
       estado: ESTADOS_PROCESO.EJECUTANDO,
       progreso: 0,
-      cpu: Math.random() * 30 + 10,
-      memoria: Math.random() * 300 + 100,
       fechaInicio: new Date(),
       tiempoTranscurrido: 0,
       duracionEstimada: config.duracion,
@@ -125,100 +109,92 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
       logs: [`${new Date().toISOString()}: Proceso iniciado`]
     };
     
-    procesosSimulados.push(nuevoProceso);
+    procesosCache.push(nuevoProceso);
     
-    // Simular progreso automático del proceso
-    simularProgresoBackgroundAPI(nuevoProceso);
+    nuevoProceso.logs.push(`${new Date().toISOString()}: Llamando a endpoint: ${config.endpoint}`);
     
-    return crearRespuesta(nuevoProceso, true, 'Proceso iniciado correctamente');
+    const resultado = await llamarEndpointReal(config, parametros);
+    
+    if (!resultado.ok) {
+      nuevoProceso.estado = ESTADOS_PROCESO.ERROR;
+      nuevoProceso.error = `Error al llamar al backend: ${resultado.error}`;
+      nuevoProceso.logs.push(`${new Date().toISOString()}: ERROR - ${nuevoProceso.error}`);
+      return { ok: true, data: nuevoProceso, message: 'Proceso iniciado pero falló al conectar con el backend' };
+    }
+    
+    // Si es asíncrono, iniciar polling
+    if (config.isAsync) {
+      const jobId = resultado.data.job_id;
+      nuevoProceso.jobId = jobId;
+      nuevoProceso.logs.push(`${new Date().toISOString()}: Job asíncrono iniciado con ID: ${jobId}`);
+      iniciarPollingJob(nuevoProceso, jobId);
+    } else {
+      // Si es síncrono, el proceso ya terminó
+      nuevoProceso.estado = ESTADOS_PROCESO.COMPLETADO;
+      nuevoProceso.progreso = 100;
+      nuevoProceso.resultado = resultado.data;
+      nuevoProceso.logs.push(`${new Date().toISOString()}: Proceso completado exitosamente`);
+      nuevoProceso.logs.push(`${new Date().toISOString()}: Duración: ${resultado.data.duracion_segundos}s`);
+    }
+    
+    return { ok: true, data: nuevoProceso, message: 'Proceso iniciado correctamente' };
     
   } catch (error) {
     console.error('Error al iniciar proceso:', error);
-    return crearRespuesta(null, false, 'Error al iniciar el proceso');
+    return { ok: false, error: 'Error al iniciar el proceso' };
   }
 }
 
 /**
- * Pausa un proceso en ejecución
+ * Cancela un proceso (cancela el job en el backend)
  */
-export async function pausarProceso(procesoId) {
-  await delay(200);
-  
+export async function cancelarProceso(procesoId) {
   try {
-    const proceso = procesosSimulados.find(p => p.id === procesoId);
+    const proceso = procesosCache.find(p => p.id === procesoId);
     if (!proceso) {
-      return crearRespuesta(null, false, 'Proceso no encontrado');
+      return { ok: false, error: 'Proceso no encontrado' };
     }
     
     if (proceso.estado !== ESTADOS_PROCESO.EJECUTANDO) {
-      return crearRespuesta(null, false, 'El proceso no se puede pausar en su estado actual');
+      return { ok: false, error: 'El proceso no se puede cancelar en su estado actual' };
     }
-    
-    proceso.estado = ESTADOS_PROCESO.PAUSADO;
-    proceso.logs.push(`${new Date().toISOString()}: Proceso pausado`);
-    
-    return crearRespuesta(proceso, true, 'Proceso pausado correctamente');
-    
-  } catch (error) {
-    console.error('Error al pausar proceso:', error);
-    return crearRespuesta(null, false, 'Error al pausar el proceso');
-  }
-}
 
-/**
- * Reanuda un proceso pausado
- */
-export async function reanudarProceso(procesoId) {
-  await delay(200);
-  
-  try {
-    const proceso = procesosSimulados.find(p => p.id === procesoId);
-    if (!proceso) {
-      return crearRespuesta(null, false, 'Proceso no encontrado');
-    }
-    
-    if (proceso.estado !== ESTADOS_PROCESO.PAUSADO) {
-      return crearRespuesta(null, false, 'El proceso no se puede reanudar en su estado actual');
-    }
-    
-    proceso.estado = ESTADOS_PROCESO.EJECUTANDO;
-    proceso.logs.push(`${new Date().toISOString()}: Proceso reanudado`);
-    
-    // Continuar simulación
-    simularProgresoBackgroundAPI(proceso);
-    
-    return crearRespuesta(proceso, true, 'Proceso reanudado correctamente');
-    
-  } catch (error) {
-    console.error('Error al reanudar proceso:', error);
-    return crearRespuesta(null, false, 'Error al reanudar el proceso');
-  }
-}
+    // Si el proceso tiene un job_id, cancelarlo en el backend
+    if (proceso.jobId) {
+      const url = `${BASE_URL}/jobs/${proceso.jobId}/cancel`;
+      console.log('Cancelando job en backend:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
 
-/**
- * Detiene un proceso
- */
-export async function detenerProceso(procesoId) {
-  await delay(200);
-  
-  try {
-    const proceso = procesosSimulados.find(p => p.id === procesoId);
-    if (!proceso) {
-      return crearRespuesta(null, false, 'Proceso no encontrado');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error al cancelar job:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('Job cancelado:', data);
+
+      // Detener el polling
+      if (pollingIntervals[proceso.jobId]) {
+        clearInterval(pollingIntervals[proceso.jobId]);
+        delete pollingIntervals[proceso.jobId];
+      }
     }
     
-    if (![ESTADOS_PROCESO.EJECUTANDO, ESTADOS_PROCESO.PAUSADO].includes(proceso.estado)) {
-      return crearRespuesta(null, false, 'El proceso no se puede detener en su estado actual');
-    }
+    proceso.estado = ESTADOS_PROCESO.CANCELADO;
+    proceso.logs.push(`${new Date().toISOString()}: Proceso cancelado por usuario`);
     
-    proceso.estado = ESTADOS_PROCESO.DETENIDO;
-    proceso.logs.push(`${new Date().toISOString()}: Proceso detenido por usuario`);
-    
-    return crearRespuesta(proceso, true, 'Proceso detenido correctamente');
+    return { ok: true, data: proceso, message: 'Proceso cancelado correctamente' };
     
   } catch (error) {
-    console.error('Error al detener proceso:', error);
-    return crearRespuesta(null, false, 'Error al detener el proceso');
+    console.error('Error al cancelar proceso:', error);
+    return { ok: false, error: `Error al cancelar el proceso: ${error.message}` };
   }
 }
 
@@ -226,26 +202,24 @@ export async function detenerProceso(procesoId) {
  * Elimina un proceso terminado
  */
 export async function eliminarProceso(procesoId) {
-  await delay(200);
-  
   try {
-    const index = procesosSimulados.findIndex(p => p.id === procesoId);
+    const index = procesosCache.findIndex(p => p.id === procesoId);
     if (index === -1) {
-      return crearRespuesta(null, false, 'Proceso no encontrado');
+    const index = procesosCache.findIndex(p => p.id === procesoId);
     }
     
-    const proceso = procesosSimulados[index];
+    const proceso = procesosCache[index];
     if (proceso.estado === ESTADOS_PROCESO.EJECUTANDO) {
-      return crearRespuesta(null, false, 'No se puede eliminar un proceso en ejecución');
+      return { ok: false, error: 'No se puede eliminar un proceso en ejecución' };
     }
     
-    procesosSimulados.splice(index, 1);
+    procesosCache.splice(index, 1);
     
-    return crearRespuesta({ id: procesoId }, true, 'Proceso eliminado correctamente');
+    return { ok: true, data: { id: procesoId }, message: 'Proceso eliminado correctamente' };
     
   } catch (error) {
     console.error('Error al eliminar proceso:', error);
-    return crearRespuesta(null, false, 'Error al eliminar el proceso');
+    return { ok: false, error: 'Error al eliminar el proceso' };
   }
 }
 
@@ -253,19 +227,17 @@ export async function eliminarProceso(procesoId) {
  * Obtiene los detalles completos de un proceso
  */
 export async function getDetalleProceso(procesoId) {
-  await delay(100);
-  
   try {
-    const proceso = procesosSimulados.find(p => p.id === procesoId);
+    const proceso = procesosCache.find(p => p.id === procesoId);
     if (!proceso) {
-      return crearRespuesta(null, false, 'Proceso no encontrado');
+      return { ok: false, error: 'Proceso no encontrado' };
     }
     
-    return crearRespuesta(proceso);
+    return { ok: true, data: proceso };
     
   } catch (error) {
     console.error('Error al obtener detalle del proceso:', error);
-    return crearRespuesta(null, false, 'Error al obtener los detalles del proceso');
+    return { ok: false, error: 'Error al obtener los detalles del proceso' };
   }
 }
 
@@ -273,118 +245,175 @@ export async function getDetalleProceso(procesoId) {
  * Obtiene estadísticas generales del sistema
  */
 export async function getEstadisticasProcesos() {
-  await delay(100);
-  
   try {
-    const estadisticas = calcularEstadisticas(procesosSimulados);
-    
-    return crearRespuesta({
-      ...estadisticas,
-      sistemaOperativo: 'Linux Ubuntu 20.04',
-      cpuTotal: 85.5,
-      memoriaTotal: 8192,
-      memoriaUsada: 4096,
-      procesosActivos: procesosSimulados.filter(p => p.estado === ESTADOS_PROCESO.EJECUTANDO).length
-    });
+    return {
+      ok: true,
+      data: {
+        total: procesosCache.length,
+        ejecutando: procesosCache.filter(p => p.estado === ESTADOS_PROCESO.EJECUTANDO).length,
+        completados: procesosCache.filter(p => p.estado === ESTADOS_PROCESO.COMPLETADO).length,
+        errores: procesosCache.filter(p => p.estado === ESTADOS_PROCESO.ERROR).length,
+        cancelados: procesosCache.filter(p => p.estado === ESTADOS_PROCESO.CANCELADO).length
+      }
+    };
     
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);
-    return crearRespuesta(null, false, 'Error al obtener estadísticas del sistema');
+    return { ok: false, error: 'Error al obtener estadísticas del sistema' };
   }
 }
 
-// Funciones auxiliares
-
-function calcularEstadisticas(procesos) {
-  return {
-    total: procesos.length,
-    ejecutando: procesos.filter(p => p.estado === ESTADOS_PROCESO.EJECUTANDO).length,
-    pausados: procesos.filter(p => p.estado === ESTADOS_PROCESO.PAUSADO).length,
-    completados: procesos.filter(p => p.estado === ESTADOS_PROCESO.COMPLETADO).length,
-    errores: procesos.filter(p => p.estado === ESTADOS_PROCESO.ERROR).length,
-    detenidos: procesos.filter(p => p.estado === ESTADOS_PROCESO.DETENIDO).length
-  };
-}
-
-function simularProgresoBackgroundAPI(proceso) {
-  const intervalId = setInterval(() => {
-    if (proceso.estado !== ESTADOS_PROCESO.EJECUTANDO) {
-      clearInterval(intervalId);
-      return;
-    }
-    
-    // Actualizar tiempo transcurrido
-    proceso.tiempoTranscurrido++;
-    
-    // Simular progreso variable
-    const incremento = Math.random() * 8 + 2; // 2-10% por segundo
-    proceso.progreso = Math.min(100, proceso.progreso + incremento);
-    
-    // Actualizar recursos con variación realista
-    proceso.cpu = Math.max(5, Math.min(95, proceso.cpu + (Math.random() - 0.5) * 15));
-    proceso.memoria = Math.max(50, proceso.memoria + (Math.random() - 0.5) * 30);
-    
-    // Agregar logs ocasionales
-    if (Math.random() < 0.1) { // 10% probabilidad
-      const mensajes = [
-        'Procesando registros...',
-        'Validando datos...',
-        'Ejecutando cálculos...',
-        'Generando resultados...',
-        'Actualizando base de datos...'
-      ];
-      const mensaje = mensajes[Math.floor(Math.random() * mensajes.length)];
-      proceso.logs.push(`${new Date().toISOString()}: ${mensaje}`);
-    }
-    
-    // Simular posible error (2% probabilidad después del 30% de progreso)
-    if (Math.random() < 0.02 && proceso.progreso > 30) {
-      proceso.estado = ESTADOS_PROCESO.ERROR;
-      proceso.error = 'Error simulado durante la ejecución: Timeout en conexión a base de datos';
-      proceso.logs.push(`${new Date().toISOString()}: ERROR - ${proceso.error}`);
-      clearInterval(intervalId);
-      return;
-    }
-    
-    // Completar proceso
-    if (proceso.progreso >= 100) {
-      proceso.estado = ESTADOS_PROCESO.COMPLETADO;
-      proceso.progreso = 100;
-      proceso.cpu = 0;
-      proceso.logs.push(`${new Date().toISOString()}: Proceso completado exitosamente`);
-      clearInterval(intervalId);
-    }
-  }, 1000);
-}
-
-// Inicializar algunos procesos de ejemplo
-function inicializarProcesosEjemplo() {
-  // Proceso completado
-  const procesoCompletado = {
-    id: procesoIdCounter++,
-    nombre: 'Importación de Datos #1',
-    tipo: 'Importación de Datos',
-    tipoProceso: TIPOS_PROCESO.IMPORTACION,
-    estado: ESTADOS_PROCESO.COMPLETADO,
-    progreso: 100,
-    cpu: 0,
-    memoria: 120,
-    fechaInicio: new Date(Date.now() - 300000), // Hace 5 minutos
-    tiempoTranscurrido: 180,
-    duracionEstimada: 30000,
-    descripcion: 'Importación de archivo de novedades completada exitosamente',
-    error: null,
-    parametros: { archivo: 'novedades_202410.xlsx' },
-    logs: [
-      `${new Date(Date.now() - 300000).toISOString()}: Proceso iniciado`,
-      `${new Date(Date.now() - 250000).toISOString()}: Validando archivo...`,
-      `${new Date(Date.now() - 200000).toISOString()}: Procesando registros...`,
-      `${new Date(Date.now() - 120000).toISOString()}: Proceso completado exitosamente`
-    ]
+/**
+ * Llama a un endpoint real del backend
+ */
+async function llamarEndpointReal(config, parametros) {
+  const url = `${BASE_URL}${config.endpoint}`;
+  
+  // Formatear el período correctamente
+  let periodoFormateado = parametros.periodo;
+  if (periodoFormateado && periodoFormateado.length === 7) {
+    // Si es formato YYYY-MM, convertir a YYYY-MM-01T00:00:00
+    periodoFormateado = `${periodoFormateado}-01T00:00:00`;
+  }
+  
+  const body = {
+    periodo: periodoFormateado || new Date().toISOString()
   };
   
-  procesosSimulados.push(procesoCompletado);
+  console.log('Llamando a backend:', url, 'Body:', body);
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error response:', response.status, errorText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (error) {
+    console.error('Error calling backend:', error);
+    return { ok: false, error: error.message };
+  }
 }
 
-// Inicializar datos de ejemplo al cargar el módulo
-inicializarProcesosEjemplo();
+/**
+ * Consulta el estado de un job asíncrono
+ */
+async function consultarEstadoJob(jobId) {
+  const url = `${BASE_URL}/jobs/${jobId}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (error) {
+    console.error('Error consultando job:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
+ * Inicia polling para un job asíncrono
+ */
+function iniciarPollingJob(proceso, jobId) {
+  // Limpiar polling anterior si existe
+  if (pollingIntervals[jobId]) {
+    clearInterval(pollingIntervals[jobId]);
+  }
+  
+  pollingIntervals[jobId] = setInterval(async () => {
+    const result = await consultarEstadoJob(jobId);
+    
+    if (!result.ok) {
+      proceso.estado = ESTADOS_PROCESO.ERROR;
+      proceso.error = `Error al consultar estado: ${result.error}`;
+      proceso.logs.push(`${new Date().toISOString()}: ERROR - ${proceso.error}`);
+      clearInterval(pollingIntervals[jobId]);
+      delete pollingIntervals[jobId];
+      return;
+    }
+    
+    const jobData = result.data;
+    
+    console.log(`[Polling] Job ${jobId} - Status: ${jobData.status}, Progress: ${jobData.progress_percentage}%`);
+    
+    // Actualizar progreso y tiempo
+    proceso.progreso = Math.round(jobData.progress_percentage || 0);
+    proceso.tiempoTranscurrido = Math.floor((new Date() - new Date(proceso.fechaInicio)) / 1000);
+    
+    // Mapear status numérico a estados
+    // 0=Pending, 1=Running, 2=Completed, 3=Failed, 4=Cancelled
+    const status = jobData.status;
+    
+    if (status === 2) { // Completed
+      proceso.estado = ESTADOS_PROCESO.COMPLETADO;
+      proceso.progreso = 100;
+      proceso.logs.push(`${new Date().toISOString()}: Proceso completado exitosamente`);
+      if (jobData.result) {
+        proceso.resultado = jobData.result;
+        if (jobData.result.mensaje) {
+          proceso.logs.push(`${new Date().toISOString()}: ${jobData.result.mensaje}`);
+        }
+        if (jobData.result.duracion_segundos !== undefined) {
+          proceso.logs.push(`${new Date().toISOString()}: Duración: ${jobData.result.duracion_segundos}s`);
+        }
+        if (jobData.result.registros_procesados !== undefined) {
+          proceso.logs.push(`${new Date().toISOString()}: Registros procesados: ${jobData.result.registros_procesados}`);
+        }
+      }
+      clearInterval(pollingIntervals[jobId]);
+      delete pollingIntervals[jobId];
+    } else if (status === 3) { // Failed
+      proceso.estado = ESTADOS_PROCESO.ERROR;
+      proceso.error = jobData.error_message || jobData.result?.mensaje || 'Error desconocido';
+      proceso.logs.push(`${new Date().toISOString()}: ERROR - ${proceso.error}`);
+      clearInterval(pollingIntervals[jobId]);
+      delete pollingIntervals[jobId];
+    } else if (status === 4) { // Cancelled
+      proceso.estado = ESTADOS_PROCESO.CANCELADO;
+      proceso.logs.push(`${new Date().toISOString()}: Proceso cancelado`);
+      clearInterval(pollingIntervals[jobId]);
+      delete pollingIntervals[jobId];
+    } else if (status === 1) { // Running
+      proceso.estado = ESTADOS_PROCESO.EJECUTANDO;
+      if (jobData.status_message) {
+        const lastLog = proceso.logs[proceso.logs.length - 1];
+        const mensajeYaRegistrado = lastLog && lastLog.includes(jobData.status_message);
+        if (!mensajeYaRegistrado) {
+          proceso.logs.push(`${new Date().toISOString()}: ${jobData.status_message} - ${proceso.progreso}% completado`);
+        }
+      }
+    } else if (status === 0) { // Pending
+      proceso.estado = ESTADOS_PROCESO.PENDIENTE;
+      const lastLog = proceso.logs[proceso.logs.length - 1];
+      if (!lastLog || !lastLog.includes('Esperando en cola')) {
+        proceso.logs.push(`${new Date().toISOString()}: Esperando en cola...`);
+      }
+    }
+    
+    // Forzar actualización del array para que Vue detecte los cambios
+    const index = procesosCache.findIndex(p => p.id === proceso.id);
+    if (index !== -1) {
+      procesosCache[index] = { ...proceso };
+    }
+  }, 2000); // Polling cada 2 segundos
+}
