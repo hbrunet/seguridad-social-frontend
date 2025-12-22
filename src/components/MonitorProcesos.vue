@@ -2,7 +2,7 @@
   <v-card class="mx-auto my-12" max-width="1200">
     <v-card-title>
       <v-icon class="mr-2">mdi-monitor</v-icon>
-      Monitor de Procesos Background
+      Monitor de Procesos 
     </v-card-title>
     
     <v-card-text>

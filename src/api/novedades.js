@@ -1,12 +1,26 @@
 // Small API wrapper for novedades endpoints
 // Use VITE_API_BASE if provided (e.g. https://localhost:5001) otherwise use relative paths
-const API_BASE = import.meta.env.VITE_API_BASE || '';
-const UPLOAD_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/upload';
-const CREAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/crear-hoja';
-const LISTADO_HOJAS_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/listado-hojas';
-const PROCESAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/procesar-hoja';
-const ANULAR_HOJA_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/anular-hoja';
-const VALIDAR_ARCHIVO_URL = (API_BASE ? API_BASE.replace(/\/$/, '') : '') + '/api/novedades/validar-archivo';
+import { getAuthToken, handleUnauthorized } from './auth';
+import { fetchWithAuth } from './http';
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001';
+const UPLOAD_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/upload';
+const CREAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/crear-hoja';
+const LISTADO_HOJAS_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/listado-hojas';
+const PROCESAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/procesar-hoja';
+const ANULAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/anular-hoja';
+const VALIDAR_ARCHIVO_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/validar-archivo';
+
+function getHeaders() {
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 // Obtener listado de hojas con filtros
 export async function getHojas({ nroHoja, periodo, estado, reparticion, page, pageSize, sort, order } = {}) {
@@ -21,7 +35,7 @@ export async function getHojas({ nroHoja, periodo, estado, reparticion, page, pa
   if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
   if (order) params.push(`order=${encodeURIComponent(order)}`);
   if (params.length) url += '?' + params.join('&');
-  const resp = await fetch(url);
+  const resp = await fetchWithAuth(url, { headers: getHeaders() });
   let data = null;
   try { data = await resp.json(); } catch(e) {}
   return { ok: resp.ok, status: resp.status, data, message: data?.mensaje || data?.message || data?.error || null };
@@ -46,7 +60,18 @@ export function uploadFileWithProgress(formData, baseUrl) {
     const xhr = new window.XMLHttpRequest();
     xhr.open('POST', url);
     xhr.responseType = 'json';
+    
+    // Agregar token de autenticación
+    const token = getAuthToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    
     xhr.onload = () => {
+      if (xhr.status === 401) {
+        const msg = xhr.response?.mensaje || xhr.response?.message || xhr.response?.error || 'Sesión expirada. Por favor, inicie sesión nuevamente.';
+        handleUnauthorized(msg);
+      }
       resolve(normalizeXhrResponse(xhr));
     };
     xhr.onerror = () => reject(new Error('Network error'));
@@ -74,7 +99,7 @@ export async function crearHoja(body, baseUrl) {
   const url = baseUrl || CREAR_HOJA_URL;
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getHeaders(),
     body: JSON.stringify(body)
   });
   return normalizeFetchResponse(resp);
@@ -86,7 +111,7 @@ export async function procesarHoja(id, baseUrl) {
   const url = `${baseUrlFinal}/${id}`;
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: getHeaders()
   });
   return normalizeFetchResponse(resp);
 }
@@ -97,7 +122,7 @@ export async function anularHoja(nroHoja, baseUrl) {
   const url = `${baseUrlFinal}/${nroHoja}`;
   const resp = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' }
+    headers: getHeaders()
   });
   return normalizeFetchResponse(resp);
 }
@@ -111,7 +136,7 @@ export async function validarArchivo(idArchivo, flowId, baseUrl) {
   }
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: getHeaders()
   });
   return normalizeFetchResponse(resp);
 }

@@ -1,4 +1,5 @@
 // API para el monitoreo de procesos background
+import { fetchWithAuth } from './http';
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 // Cache local de procesos
@@ -164,7 +165,7 @@ export async function cancelarProceso(procesoId) {
       const url = `${BASE_URL}/jobs/${proceso.jobId}/cancel`;
       console.log('Cancelando job en backend:', url);
       
-      const response = await fetch(url, {
+      const response = await fetchWithAuth(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -283,7 +284,7 @@ async function llamarEndpointReal(config, parametros) {
   console.log('Llamando a backend:', url, 'Body:', body);
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -312,7 +313,7 @@ async function consultarEstadoJob(jobId) {
   const url = `${BASE_URL}/jobs/${jobId}`;
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
