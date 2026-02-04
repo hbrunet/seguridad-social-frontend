@@ -1,6 +1,7 @@
 // API helper for authentication endpoints
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001';
-const LOGIN_URL = (API_BASE.replace(/\/$/, '')) + '/api/auth/login';
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '';
+const API_BASE = RAW_API_BASE.replace(/\/$/, '');
+const LOGIN_URL = `${API_BASE}/auth/login`;
 
 async function normalizeFetchResponse(response) {
   let data = null;
@@ -8,7 +9,7 @@ async function normalizeFetchResponse(response) {
   return { ok: response.ok, status: response.status, data, message: data?.mensaje || data?.message || data?.error || null };
 }
 
-export async function login(userName, password, applicationId = 9) {
+export async function login(userName, password) {
   try {
     const resp = await fetch(LOGIN_URL, {
       method: 'POST',
@@ -17,8 +18,7 @@ export async function login(userName, password, applicationId = 9) {
       },
       body: JSON.stringify({
         user_name: `h_${userName}`,
-        password: password,
-        application_id: applicationId
+        password: password
       })
     });
     

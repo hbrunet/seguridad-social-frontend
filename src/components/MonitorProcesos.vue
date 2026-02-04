@@ -12,8 +12,9 @@
           <v-select
             v-model="tipoProceso"
             :items="tiposProceso"
+            return-object
             item-value="id"
-            item-title="nombre"
+            item-title="name"
             label="Tipo de Proceso"
             clearable
           ></v-select>
@@ -114,15 +115,8 @@
           {{ formatTiempo(item.tiempoTranscurrido) }}
         </template>
 
-        <template v-slot:[`item.jobId`]="{ item }">
-          <v-chip v-if="item.jobId" size="x-small" color="info" variant="outlined">
-            {{ item.jobId.substring(0, 8) }}...
-          </v-chip>
-          <span v-else class="text-grey">-</span>
-        </template>
-
         <template v-slot:[`item.fechaInicio`]="{ item }">
-          {{ formatFecha(item.fechaInicio) }}
+          {{ formatFechaHora(item.fechaInicio) }}
         </template>
 
         <template v-slot:[`item.acciones`]="{ item }">
@@ -136,29 +130,10 @@
               ></v-btn>
             </template>
             <v-list>
-              <v-list-item 
-                @click="cancelarProceso(item)" 
-                :disabled="item.estado !== ESTADOS_PROCESO.EJECUTANDO"
-              >
-                <v-list-item-title>
-                  <v-icon class="mr-2">mdi-cancel</v-icon>
-                  Cancelar
-                </v-list-item-title>
-              </v-list-item>
               <v-list-item @click="verDetalles(item)">
                 <v-list-item-title>
                   <v-icon class="mr-2">mdi-information</v-icon>
                   Detalles
-                </v-list-item-title>
-              </v-list-item>
-              <v-list-item 
-                @click="eliminarProceso(item)" 
-                :disabled="item.estado === ESTADOS_PROCESO.EJECUTANDO"
-                class="text-error"
-              >
-                <v-list-item-title>
-                  <v-icon class="mr-2">mdi-delete</v-icon>
-                  Eliminar
                 </v-list-item-title>
               </v-list-item>
             </v-list>
@@ -169,20 +144,21 @@
       <!-- Dialogo de Detalles -->
       <v-dialog v-model="dialogDetalles" max-width="600">
         <v-card v-if="procesoSeleccionado">
-          <v-card-title>
+          <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-information</v-icon>
-            Detalles del Proceso: {{ procesoSeleccionado.nombre }}
+            Detalles del Proceso
+                <v-spacer />
+            <v-btn icon variant="text" @click="dialogDetalles = false" aria-label="Cerrar">
+              <v-icon>mdi-close</v-icon>
+            </v-btn>
           </v-card-title>
           <v-card-text>
             <v-row>
               <v-col cols="6">
-                <strong>ID:</strong> {{ procesoSeleccionado.id }}
-              </v-col>
-              <v-col cols="6">
                 <strong>Tipo:</strong> {{ procesoSeleccionado.tipo }}
               </v-col>
               <v-col cols="12" v-if="procesoSeleccionado.jobId">
-                <strong>Job ID (Backend):</strong> 
+                <strong>ID:</strong> 
                 <v-chip size="small" color="info" class="ml-2">{{ procesoSeleccionado.jobId }}</v-chip>
               </v-col>
               <v-col cols="6">
@@ -190,10 +166,6 @@
               </v-col>
               <v-col cols="6">
                 <strong>Progreso:</strong> {{ procesoSeleccionado.progreso }}%
-              </v-col>
-              <v-col cols="12">
-                <strong>Descripción:</strong>
-                <p class="mt-2">{{ procesoSeleccionado.descripcion }}</p>
               </v-col>
               <v-col cols="12" v-if="procesoSeleccionado.parametros">
                 <strong>Parámetros:</strong>
@@ -246,10 +218,11 @@ import {
   cancelarProceso as cancelarProcesoAPI,
   eliminarProceso as eliminarProcesoAPI,
   getDetalleProceso,
-  configuracionProcesos,
   TIPOS_PROCESO,
   ESTADOS_PROCESO
 } from '../api/procesos.js';
+import { getJobTypes } from '../api/configuracion.js';
+import { formatFechaHora, formatTiempo } from '../utils/formatDate.js';
 
 // Estados reactivos
 const procesos = ref([]);
@@ -272,26 +245,18 @@ const snackbar = ref({
   color: 'info'
 });
 
-// Tipos de proceso disponibles (convertir desde la API)
-const tiposProceso = ref(
-  Object.entries(configuracionProcesos).map(([id, config]) => ({
-    id,
-    nombre: config.nombre,
-    duracion: config.duracion
-  }))
-);
+// Tipos de proceso disponibles (se cargarán desde la API)
+const tiposProceso = ref([]);
 
 // Headers de la tabla
 const headers = [
-  { title: 'ID', value: 'id', sortable: false, width: '60px' },
-  { title: 'Nombre', value: 'nombre', sortable: false },
+  { title: 'ID', value: 'jobId', sortable: false },
   { title: 'Tipo', value: 'tipo', sortable: false },
-  { title: 'Estado', value: 'estado', sortable: false, width: '120px' },
-  { title: 'Progreso', value: 'progreso', sortable: false, width: '150px' },
-  { title: 'Tiempo', value: 'tiempoTranscurrido', sortable: false, width: '100px' },
-  { title: 'Job ID', value: 'jobId', sortable: false, width: '120px' },
-  { title: 'Inicio', value: 'fechaInicio', sortable: false, width: '130px' },
-  { title: 'Acciones', value: 'acciones', sortable: false, width: '80px' }
+  { title: 'Estado', value: 'estado', sortable: false },
+  { title: 'Progreso', value: 'progreso', sortable: false },
+  { title: 'Tiempo', value: 'tiempoTranscurrido', sortable: false },
+  { title: 'Inicio', value: 'fechaInicio', sortable: false },
+  { title: 'Acciones', value: 'acciones', sortable: false }
 ];
 
 // Computed properties
@@ -332,22 +297,6 @@ function getProgresoColor(progreso) {
   return 'success';
 }
 
-function formatTiempo(segundos) {
-  const mins = Math.floor(segundos / 60);
-  const secs = segundos % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatFecha(fecha) {
-  return new Date(fecha).toLocaleString('es-ES', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
 function mostrarNotificacion(mensaje, color = 'info') {
   snackbar.value = {
     show: true,
@@ -359,9 +308,9 @@ function mostrarNotificacion(mensaje, color = 'info') {
 // Funciones de proceso
 async function iniciarProceso() {
   if (!tipoProceso.value) return;
-  
+
   procesando.value = true;
-  
+
   try {
     // Preparar parámetros incluyendo el período
     const parametros = {
@@ -369,7 +318,8 @@ async function iniciarProceso() {
     };
     
     console.log('Iniciando proceso con período:', parametros.periodo);
-    
+    console.log('Tipo de proceso:', tipoProceso.value);
+
     const resp = await iniciarProcesoAPI(tipoProceso.value, parametros);
     
     if (resp.ok) {
@@ -385,38 +335,6 @@ async function iniciarProceso() {
     mostrarNotificacion('Error al iniciar el proceso', 'error');
   } finally {
     procesando.value = false;
-  }
-}
-
-async function cancelarProceso(proceso) {
-  try {
-    const resp = await cancelarProcesoAPI(proceso.id);
-    if (resp.ok) {
-      await cargarProcesos();
-      mostrarNotificacion(`Proceso cancelado: ${proceso.nombre}`, 'warning');
-    } else {
-      mostrarNotificacion(`Error: ${resp.message}`, 'error');
-    }
-  } catch (error) {
-    console.error('Error al cancelar proceso:', error);
-    mostrarNotificacion('Error al cancelar el proceso', 'error');
-  }
-}
-
-async function eliminarProceso(proceso) {
-  if (confirm(`¿Desea eliminar el proceso ${proceso.nombre}?`)) {
-    try {
-      const resp = await eliminarProcesoAPI(proceso.id);
-      if (resp.ok) {
-        await cargarProcesos();
-        mostrarNotificacion(`Proceso eliminado: ${proceso.nombre}`, 'info');
-      } else {
-        mostrarNotificacion(`Error: ${resp.message}`, 'error');
-      }
-    } catch (error) {
-      console.error('Error al eliminar proceso:', error);
-      mostrarNotificacion('Error al eliminar el proceso', 'error');
-    }
   }
 }
 
@@ -479,6 +397,18 @@ function detenerAutoRefresh() {
 onMounted(async () => {
   // Cargar procesos existentes
   await cargarProcesos();
+  // Cargar job types desde la API de configuración
+  try {
+    const res = await getJobTypes();
+    if (res.ok) {
+      const data = res.data ?? res.data?.items ?? [];
+      const list = Array.isArray(data) ? data : [];
+      tiposProceso.value = list;
+      console.log('Tipos de proceso cargados:', tiposProceso.value);
+    }
+  } catch (e) {
+    console.error('Error loading job types:', e);
+  }
   
   // Iniciar auto-refresh si está habilitado
   if (autoRefresh.value) {

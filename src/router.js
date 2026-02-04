@@ -6,6 +6,7 @@ import FileUploader from './components/FileUploader.vue';
 import ListadoHojas from './components/ListadoHojas.vue';
 import MonitorProcesos from './components/MonitorProcesos.vue';
 import Login from './components/Login.vue';
+import HistorialEjecuciones from './components/HistorialEjecuciones.vue';
 
 const routes = [
   {
@@ -36,6 +37,12 @@ const routes = [
     path: '/monitor-procesos',
     name: 'MonitorProcesos',
     component: MonitorProcesos,
+    meta: { requiresAuth: true }
+  }
+  ,{
+    path: '/historial-procesos',
+    name: 'HistorialEjecuciones',
+    component: HistorialEjecuciones,
     meta: { requiresAuth: true }
   }
 ];

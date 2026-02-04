@@ -1,6 +1,7 @@
 // API para el monitoreo de procesos background
 import { fetchWithAuth } from './http';
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '';
+const BASE_URL = RAW_API_BASE.replace(/\/$/, '');
 
 // Cache local de procesos
 let procesosCache = [];
@@ -22,32 +23,6 @@ export const ESTADOS_PROCESO = {
   COMPLETADO: 'Completado',
   ERROR: 'Error',
   CANCELADO: 'Cancelado'
-};
-
-// Configuración de tipos de proceso
-export const configuracionProcesos = {
-  // Nuevas configuraciones para tests reales
-  [TIPOS_PROCESO.FUSIONAR_DATOS]: {
-    nombre: 'Fusión de Datos',
-    duracion: 600000, // 10 minutos
-    descripcion: 'Proceso de fusión de datos en el sistema backend',
-    endpoint: '/ddjj/fusionar-datos',
-    isAsync: true
-  },
-  [TIPOS_PROCESO.TEST_FUSION_QUICK_ASYNC]: {
-    nombre: 'Test Fusión Rápido (Asíncrono)',
-    duracion: 30000, // 30 segundos
-    descripcion: 'Test rápido asíncrono con progreso - 30 segundos',
-    endpoint: '/testing/fusion-quick-async',
-    isAsync: true
-  },
-  [TIPOS_PROCESO.TEST_FUSION_SLOW_ASYNC]: {
-    nombre: 'Test Fusión Lento (Asíncrono)',
-    duracion: 120000, // 2 minutos
-    descripcion: 'Test lento asíncrono simula proceso real - 2 minutos',
-    endpoint: '/testing/fusion-slow-async',
-    isAsync: true
-  }
 };
 
 /**
@@ -85,26 +60,112 @@ export async function getProcesos(filtros = {}) {
 }
 
 /**
+ * Obtiene el historial/auditoría de ejecuciones de jobs
+ * Endpoint: GET /api/jobs/audits
+ * Parámetros soportados: createdBy, fechaInicio, jobType, jobId, page, pageSize
+ */
+export async function getJobAudits({ createdBy, fechaInicio, jobType, jobId, page = 1, pageSize = 10 } = {}) {
+  try {
+    const usp = new URLSearchParams();
+    if (createdBy) usp.set('createdBy', createdBy);
+    if (fechaInicio) usp.set('fechaInicio', fechaInicio);
+    if (jobType) usp.set('jobType', jobType);
+    if (jobId) usp.set('jobId', jobId);
+    if (page) usp.set('page', String(page));
+    if (pageSize) usp.set('pageSize', String(pageSize));
+
+    const url = `${BASE_URL}/jobs/audits${usp.toString() ? `?${usp.toString()}` : ''}`;
+    const response = await fetchWithAuth(url, { method: 'GET' });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error al obtener auditorías:', response.status, errorText);
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+
+    const raw = await response.json();
+
+    return {
+      ok: true,
+      data: {
+        items: raw.audits,
+        total: raw.total_registros,
+        page,
+        pageSize
+      }
+    };
+  } catch (error) {
+    console.error('Error al consultar auditorías:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
+ * Obtiene los logs de un job
+ * Endpoint: GET /api/jobs/{jobId}/logs
+ */
+export async function getJobLogs(jobId) {
+  try {
+    if (!jobId) {
+      return { ok: false, error: 'JobId no válido' };
+    }
+
+    const url = `${BASE_URL}/jobs/${jobId}/logs`;
+    const response = await fetchWithAuth(url, { method: 'GET' });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error al obtener logs del job:', response.status, errorText);
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+
+    const raw = await response.json();
+    let items = [];
+
+    if (Array.isArray(raw)) {
+      items = raw;
+    } else if (raw?.items) {
+      items = raw.items;
+    } else if (raw?.logs) {
+      items = raw.logs;
+    } else if (raw?.data?.items) {
+      items = raw.data.items;
+    } else if (raw?.data?.logs) {
+      items = raw.data.logs;
+    } else if (raw?.data && Array.isArray(raw.data)) {
+      items = raw.data;
+    } else if (raw) {
+      items = [raw];
+    }
+
+    return {
+      ok: true,
+      data: { items }
+    };
+  } catch (error) {
+    console.error('Error al consultar logs del job:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
  * Inicia un nuevo proceso
  */
 export async function iniciarProceso(tipoProceso, parametros = {}) {
   try {
-    const config = configuracionProcesos[tipoProceso];
-    if (!config) {
+    if (!tipoProceso) {
       return { ok: false, error: 'Tipo de proceso no válido' };
     }
     
     const nuevoProceso = {
       id: procesoIdCounter++,
-      nombre: `${config.nombre} #${procesoIdCounter - 1}`,
-      tipo: config.nombre,
+      nombre: `${tipoProceso.name} #${procesoIdCounter - 1}`,
+      tipo: tipoProceso.name,
       tipoProceso: tipoProceso,
       estado: ESTADOS_PROCESO.EJECUTANDO,
       progreso: 0,
       fechaInicio: new Date(),
       tiempoTranscurrido: 0,
-      duracionEstimada: config.duracion,
-      descripcion: parametros.descripcion || config.descripcion,
       error: null,
       parametros: parametros,
       logs: [`${new Date().toISOString()}: Proceso iniciado`]
@@ -112,9 +173,9 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
     
     procesosCache.push(nuevoProceso);
     
-    nuevoProceso.logs.push(`${new Date().toISOString()}: Llamando a endpoint: ${config.endpoint}`);
+    nuevoProceso.logs.push(`${new Date().toISOString()}: Llamando a endpoint: ${tipoProceso.endpoint}`);
     
-    const resultado = await llamarEndpointReal(config, parametros);
+    const resultado = await llamarEndpointReal(tipoProceso, parametros);
     
     if (!resultado.ok) {
       nuevoProceso.estado = ESTADOS_PROCESO.ERROR;
@@ -122,21 +183,11 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
       nuevoProceso.logs.push(`${new Date().toISOString()}: ERROR - ${nuevoProceso.error}`);
       return { ok: true, data: nuevoProceso, message: 'Proceso iniciado pero falló al conectar con el backend' };
     }
-    
-    // Si es asíncrono, iniciar polling
-    if (config.isAsync) {
-      const jobId = resultado.data.job_id;
-      nuevoProceso.jobId = jobId;
-      nuevoProceso.logs.push(`${new Date().toISOString()}: Job asíncrono iniciado con ID: ${jobId}`);
-      iniciarPollingJob(nuevoProceso, jobId);
-    } else {
-      // Si es síncrono, el proceso ya terminó
-      nuevoProceso.estado = ESTADOS_PROCESO.COMPLETADO;
-      nuevoProceso.progreso = 100;
-      nuevoProceso.resultado = resultado.data;
-      nuevoProceso.logs.push(`${new Date().toISOString()}: Proceso completado exitosamente`);
-      nuevoProceso.logs.push(`${new Date().toISOString()}: Duración: ${resultado.data.duracion_segundos}s`);
-    }
+
+    const jobId = resultado.data.job_id;
+    nuevoProceso.jobId = jobId;
+    nuevoProceso.logs.push(`${new Date().toISOString()}: Job asíncrono iniciado con ID: ${jobId}`);
+    iniciarPollingJob(nuevoProceso, jobId);
     
     return { ok: true, data: nuevoProceso, message: 'Proceso iniciado correctamente' };
     
@@ -206,7 +257,7 @@ export async function eliminarProceso(procesoId) {
   try {
     const index = procesosCache.findIndex(p => p.id === procesoId);
     if (index === -1) {
-    const index = procesosCache.findIndex(p => p.id === procesoId);
+      return { ok: false, error: 'Proceso no encontrado' };
     }
     
     const proceso = procesosCache[index];
@@ -267,8 +318,9 @@ export async function getEstadisticasProcesos() {
 /**
  * Llama a un endpoint real del backend
  */
-async function llamarEndpointReal(config, parametros) {
-  const url = `${BASE_URL}${config.endpoint}`;
+async function llamarEndpointReal(tipoProceso, parametros) {
+  let url = `${BASE_URL}${tipoProceso.endpoint}`;
+  const method = (tipoProceso.method || 'POST').toUpperCase();
   
   // Formatear el período correctamente
   let periodoFormateado = parametros.periodo;
@@ -277,20 +329,25 @@ async function llamarEndpointReal(config, parametros) {
     periodoFormateado = `${periodoFormateado}-01T00:00:00`;
   }
   
-  const body = {
-    periodo: periodoFormateado || new Date().toISOString()
-  };
+  const queryPeriodo = periodoFormateado || new Date().toISOString();
+  let body = null;
   
-  console.log('Llamando a backend:', url, 'Body:', body);
+  if (method === 'GET') {
+    const usp = new URLSearchParams({ periodo: queryPeriodo });
+    url = `${url}?${usp.toString()}`;
+    console.log('Llamando a backend (GET):', url);
+  } else {
+    body = { periodo: queryPeriodo };
+    console.log('Llamando a backend (POST):', url, 'Body:', body);
+  }
   
   try {
-    const response = await fetchWithAuth(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body)
-    });
+    const options = { method };
+    if (method !== 'GET') {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetchWithAuth(url, options);
     
     if (!response.ok) {
       const errorText = await response.text();

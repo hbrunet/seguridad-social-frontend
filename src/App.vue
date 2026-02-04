@@ -22,13 +22,29 @@
           <v-list-item to="/listado-hojas">
             <v-list-item-title>
               <v-icon class="mr-2">mdi-file-multiple</v-icon>
-              Administrar de Hojas
+              Administrar Hojas
             </v-list-item-title>
           </v-list-item>
+        </v-list>
+      </v-menu>
+      <v-menu>
+         <template v-slot:activator="{ props }">
+          <v-btn variant="text" v-bind="props">
+            Procesos
+            <v-icon end>mdi-menu-down</v-icon>
+          </v-btn>
+        </template>
+        <v-list>
           <v-list-item to="/monitor-procesos">
             <v-list-item-title>
               <v-icon class="mr-2">mdi-monitor</v-icon>
-              Monitor de Procesos
+              Monitor 
+            </v-list-item-title>
+          </v-list-item>
+          <v-list-item to="/historial-procesos">
+            <v-list-item-title>
+              <v-icon class="mr-2">mdi-history</v-icon>
+              Historial de Ejecuciones
             </v-list-item-title>
           </v-list-item>
         </v-list>

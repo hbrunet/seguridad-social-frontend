@@ -2,7 +2,7 @@
   <v-card class="mx-auto my-12" max-width="1000">
     <v-card-title>
       <v-icon class="mr-2">mdi-file-multiple</v-icon>
-      Hojas
+      Administrar Hojas
     </v-card-title>
     <v-card-text>
       <v-row class="md-4">
@@ -126,22 +126,7 @@ const snackbar = ref({
   color: 'info'
 });
 
-function formatPeriodo(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${month}/${year}`;
-}
-
-function formatFecha(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
-}
+import { formatPeriodo, formatFecha } from '../utils/formatDate.js';
 
 function changePage(newPage) {
   page.value = newPage;

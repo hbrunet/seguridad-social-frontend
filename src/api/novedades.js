@@ -3,13 +3,14 @@
 import { getAuthToken, handleUnauthorized } from './auth';
 import { fetchWithAuth } from './http';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001';
-const UPLOAD_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/upload';
-const CREAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/crear-hoja';
-const LISTADO_HOJAS_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/listado-hojas';
-const PROCESAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/procesar-hoja';
-const ANULAR_HOJA_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/anular-hoja';
-const VALIDAR_ARCHIVO_URL = (API_BASE.replace(/\/$/, '')) + '/api/novedades/validar-archivo';
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '';
+const API_BASE = RAW_API_BASE.replace(/\/$/, '');
+const UPLOAD_URL = `${API_BASE}/novedades/upload`;
+const CREAR_HOJA_URL = `${API_BASE}/novedades/crear-hoja`;
+const LISTADO_HOJAS_URL = `${API_BASE}/novedades/listado-hojas`;
+const PROCESAR_HOJA_URL = `${API_BASE}/novedades/procesar-hoja`;
+const ANULAR_HOJA_URL = `${API_BASE}/novedades/anular-hoja`;
+const VALIDAR_ARCHIVO_URL = `${API_BASE}/novedades/validar-archivo`;
 
 function getHeaders() {
   const headers = {
