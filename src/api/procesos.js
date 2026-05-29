@@ -1,5 +1,6 @@
 // API para el monitoreo de procesos background
 import { fetchWithAuth } from './http';
+import { formatPeriodo } from '../utils/formatDate';
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '';
 const BASE_URL = RAW_API_BASE.replace(/\/$/, '');
 
@@ -8,12 +9,21 @@ let procesosCache = [];
 let procesoIdCounter = 1;
 let pollingIntervals = {}; // Almacenar intervalos de polling por job_id
 
+function addLog(proceso, mensaje) {
+  const last = proceso.logs[proceso.logs.length - 1];
+  if (last && last.slice(last.indexOf(': ') + 2) === mensaje) return;
+  proceso.logs.push(`${new Date().toISOString()}: ${mensaje}`);
+}
+
 // Tipos de proceso disponibles (ahora incluye tests reales)
 export const TIPOS_PROCESO = {
   FUSIONAR_DATOS: 'fusionar-datos',
   TEST_FUSION_QUICK_ASYNC: 'test-fusion-quick-async',
   TEST_FUSION_SLOW_ASYNC: 'test-fusion-slow-async',
 };
+
+// Nombres de tipos de proceso que generan un archivo descargable al completarse
+export const TIPOS_CON_DESCARGA = ['Exportar Presentación'];
 
 // Estados de proceso
 export const ESTADOS_PROCESO = {
@@ -54,7 +64,6 @@ export async function getProcesos(filtros = {}) {
     };
     
   } catch (error) {
-    console.error('Error al obtener procesos:', error);
     return { ok: false, error: error.message };
   }
 }
@@ -64,13 +73,14 @@ export async function getProcesos(filtros = {}) {
  * Endpoint: GET /api/jobs/audits
  * Parámetros soportados: createdBy, fechaInicio, jobType, jobId, page, pageSize
  */
-export async function getJobAudits({ createdBy, fechaInicio, jobType, jobId, page = 1, pageSize = 10 } = {}) {
+export async function getJobAudits({ createdBy, fechaInicio, jobType, jobId, periodo, page = 1, pageSize = 10 } = {}) {
   try {
     const usp = new URLSearchParams();
     if (createdBy) usp.set('createdBy', createdBy);
     if (fechaInicio) usp.set('fechaInicio', fechaInicio);
     if (jobType) usp.set('jobType', jobType);
     if (jobId) usp.set('jobId', jobId);
+    if (periodo) usp.set('periodo', periodo);
     if (page) usp.set('page', String(page));
     if (pageSize) usp.set('pageSize', String(pageSize));
 
@@ -78,8 +88,6 @@ export async function getJobAudits({ createdBy, fechaInicio, jobType, jobId, pag
     const response = await fetchWithAuth(url, { method: 'GET' });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error al obtener auditorías:', response.status, errorText);
       return { ok: false, error: `HTTP ${response.status}` };
     }
 
@@ -95,7 +103,6 @@ export async function getJobAudits({ createdBy, fechaInicio, jobType, jobId, pag
       }
     };
   } catch (error) {
-    console.error('Error al consultar auditorías:', error);
     return { ok: false, error: error.message };
   }
 }
@@ -114,8 +121,6 @@ export async function getJobLogs(jobId) {
     const response = await fetchWithAuth(url, { method: 'GET' });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error al obtener logs del job:', response.status, errorText);
       return { ok: false, error: `HTTP ${response.status}` };
     }
 
@@ -143,7 +148,6 @@ export async function getJobLogs(jobId) {
       data: { items }
     };
   } catch (error) {
-    console.error('Error al consultar logs del job:', error);
     return { ok: false, error: error.message };
   }
 }
@@ -160,6 +164,7 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
     const nuevoProceso = {
       id: procesoIdCounter++,
       nombre: `${tipoProceso.name} #${procesoIdCounter - 1}`,
+      periodo: formatPeriodo(`${parametros.periodo}-01T00:00:00`) || null,
       tipo: tipoProceso.name,
       tipoProceso: tipoProceso,
       estado: ESTADOS_PROCESO.EJECUTANDO,
@@ -173,26 +178,25 @@ export async function iniciarProceso(tipoProceso, parametros = {}) {
     
     procesosCache.push(nuevoProceso);
     
-    nuevoProceso.logs.push(`${new Date().toISOString()}: Llamando a endpoint: ${tipoProceso.endpoint}`);
+    addLog(nuevoProceso, `Llamando a endpoint: ${tipoProceso.endpoint}`);
     
     const resultado = await llamarEndpointReal(tipoProceso, parametros);
     
     if (!resultado.ok) {
       nuevoProceso.estado = ESTADOS_PROCESO.ERROR;
       nuevoProceso.error = `Error al llamar al backend: ${resultado.error}`;
-      nuevoProceso.logs.push(`${new Date().toISOString()}: ERROR - ${nuevoProceso.error}`);
+      addLog(nuevoProceso, `ERROR - ${nuevoProceso.error}`);
       return { ok: true, data: nuevoProceso, message: 'Proceso iniciado pero falló al conectar con el backend' };
     }
 
     const jobId = resultado.data.job_id;
     nuevoProceso.jobId = jobId;
-    nuevoProceso.logs.push(`${new Date().toISOString()}: Job asíncrono iniciado con ID: ${jobId}`);
+    addLog(nuevoProceso, `Job asíncrono iniciado con ID: ${jobId}`);
     iniciarPollingJob(nuevoProceso, jobId);
     
     return { ok: true, data: nuevoProceso, message: 'Proceso iniciado correctamente' };
     
   } catch (error) {
-    console.error('Error al iniciar proceso:', error);
     return { ok: false, error: 'Error al iniciar el proceso' };
   }
 }
@@ -214,7 +218,6 @@ export async function cancelarProceso(procesoId) {
     // Si el proceso tiene un job_id, cancelarlo en el backend
     if (proceso.jobId) {
       const url = `${BASE_URL}/jobs/${proceso.jobId}/cancel`;
-      console.log('Cancelando job en backend:', url);
       
       const response = await fetchWithAuth(url, {
         method: 'POST',
@@ -224,13 +227,8 @@ export async function cancelarProceso(procesoId) {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error al cancelar job:', response.status, errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      const data = await response.json();
-      console.log('Job cancelado:', data);
 
       // Detener el polling
       if (pollingIntervals[proceso.jobId]) {
@@ -240,12 +238,11 @@ export async function cancelarProceso(procesoId) {
     }
     
     proceso.estado = ESTADOS_PROCESO.CANCELADO;
-    proceso.logs.push(`${new Date().toISOString()}: Proceso cancelado por usuario`);
+    addLog(proceso, 'Proceso cancelado por usuario');
     
     return { ok: true, data: proceso, message: 'Proceso cancelado correctamente' };
     
   } catch (error) {
-    console.error('Error al cancelar proceso:', error);
     return { ok: false, error: `Error al cancelar el proceso: ${error.message}` };
   }
 }
@@ -270,7 +267,6 @@ export async function eliminarProceso(procesoId) {
     return { ok: true, data: { id: procesoId }, message: 'Proceso eliminado correctamente' };
     
   } catch (error) {
-    console.error('Error al eliminar proceso:', error);
     return { ok: false, error: 'Error al eliminar el proceso' };
   }
 }
@@ -288,7 +284,6 @@ export async function getDetalleProceso(procesoId) {
     return { ok: true, data: proceso };
     
   } catch (error) {
-    console.error('Error al obtener detalle del proceso:', error);
     return { ok: false, error: 'Error al obtener los detalles del proceso' };
   }
 }
@@ -310,7 +305,6 @@ export async function getEstadisticasProcesos() {
     };
     
   } catch (error) {
-    console.error('Error al obtener estadísticas:', error);
     return { ok: false, error: 'Error al obtener estadísticas del sistema' };
   }
 }
@@ -335,10 +329,8 @@ async function llamarEndpointReal(tipoProceso, parametros) {
   if (method === 'GET') {
     const usp = new URLSearchParams({ periodo: queryPeriodo });
     url = `${url}?${usp.toString()}`;
-    console.log('Llamando a backend (GET):', url);
   } else {
     body = { periodo: queryPeriodo };
-    console.log('Llamando a backend (POST):', url, 'Body:', body);
   }
   
   try {
@@ -350,15 +342,12 @@ async function llamarEndpointReal(tipoProceso, parametros) {
     const response = await fetchWithAuth(url, options);
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error response:', response.status, errorText);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const data = await response.json();
     return { ok: true, data };
   } catch (error) {
-    console.error('Error calling backend:', error);
     return { ok: false, error: error.message };
   }
 }
@@ -384,7 +373,43 @@ async function consultarEstadoJob(jobId) {
     const data = await response.json();
     return { ok: true, data };
   } catch (error) {
-    console.error('Error consultando job:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
+ * Descarga el archivo resultado de un job completado.
+ * Endpoint: GET /api/jobs/{jobId}/download
+ * Soporta respuesta blob (descarga directa) o JSON con URL firmada.
+ */
+export async function descargarResultado(jobId) {
+  try {
+    const url = `${BASE_URL}/ddjj/exportar-presentacion/${jobId}/archivo`;
+    const response = await fetchWithAuth(url, { method: 'GET' });
+
+    if (!response.ok) {
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+
+    const contentType = response.headers.get('Content-Type') || '';
+
+    if (contentType.includes('application/json')) {
+      const data = await response.json();
+      const downloadUrl = data.url || data.download_url || data.file_url;
+      if (downloadUrl) {
+        return { ok: true, type: 'url', url: downloadUrl, filename: data.filename || data.nombre || null };
+      }
+      return { ok: false, error: 'La respuesta no contiene URL de descarga' };
+    }
+
+    // Respuesta binaria: extraer nombre del header Content-Disposition
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename[^;=\n]*=(['"]?)([^'";\n]*)\1/i);
+    const filename = match ? match[2] : `resultado_${jobId}`;
+
+    return { ok: true, type: 'blob', blob, filename };
+  } catch (error) {
     return { ok: false, error: error.message };
   }
 }
@@ -404,7 +429,7 @@ function iniciarPollingJob(proceso, jobId) {
     if (!result.ok) {
       proceso.estado = ESTADOS_PROCESO.ERROR;
       proceso.error = `Error al consultar estado: ${result.error}`;
-      proceso.logs.push(`${new Date().toISOString()}: ERROR - ${proceso.error}`);
+      addLog(proceso, `ERROR - ${proceso.error}`);
       clearInterval(pollingIntervals[jobId]);
       delete pollingIntervals[jobId];
       return;
@@ -412,7 +437,7 @@ function iniciarPollingJob(proceso, jobId) {
     
     const jobData = result.data;
     
-    console.log(`[Polling] Job ${jobId} - Status: ${jobData.status}, Progress: ${jobData.progress_percentage}%`);
+
     
     // Actualizar progreso y tiempo
     proceso.progreso = Math.round(jobData.progress_percentage || 0);
@@ -425,17 +450,17 @@ function iniciarPollingJob(proceso, jobId) {
     if (status === 2) { // Completed
       proceso.estado = ESTADOS_PROCESO.COMPLETADO;
       proceso.progreso = 100;
-      proceso.logs.push(`${new Date().toISOString()}: Proceso completado exitosamente`);
+      addLog(proceso, 'Proceso completado exitosamente');
       if (jobData.result) {
         proceso.resultado = jobData.result;
         if (jobData.result.mensaje) {
-          proceso.logs.push(`${new Date().toISOString()}: ${jobData.result.mensaje}`);
+          addLog(proceso, jobData.result.mensaje);
         }
         if (jobData.result.duracion_segundos !== undefined) {
-          proceso.logs.push(`${new Date().toISOString()}: Duración: ${jobData.result.duracion_segundos}s`);
+          addLog(proceso, `Duración: ${jobData.result.duracion_segundos}s`);
         }
         if (jobData.result.registros_procesados !== undefined) {
-          proceso.logs.push(`${new Date().toISOString()}: Registros procesados: ${jobData.result.registros_procesados}`);
+          addLog(proceso, `Registros procesados: ${jobData.result.registros_procesados}`);
         }
       }
       clearInterval(pollingIntervals[jobId]);
@@ -443,29 +468,22 @@ function iniciarPollingJob(proceso, jobId) {
     } else if (status === 3) { // Failed
       proceso.estado = ESTADOS_PROCESO.ERROR;
       proceso.error = jobData.error_message || jobData.result?.mensaje || 'Error desconocido';
-      proceso.logs.push(`${new Date().toISOString()}: ERROR - ${proceso.error}`);
+      addLog(proceso, `ERROR - ${proceso.error}`);
       clearInterval(pollingIntervals[jobId]);
       delete pollingIntervals[jobId];
     } else if (status === 4) { // Cancelled
       proceso.estado = ESTADOS_PROCESO.CANCELADO;
-      proceso.logs.push(`${new Date().toISOString()}: Proceso cancelado`);
+      addLog(proceso, 'Proceso cancelado');
       clearInterval(pollingIntervals[jobId]);
       delete pollingIntervals[jobId];
     } else if (status === 1) { // Running
       proceso.estado = ESTADOS_PROCESO.EJECUTANDO;
       if (jobData.status_message) {
-        const lastLog = proceso.logs[proceso.logs.length - 1];
-        const mensajeYaRegistrado = lastLog && lastLog.includes(jobData.status_message);
-        if (!mensajeYaRegistrado) {
-          proceso.logs.push(`${new Date().toISOString()}: ${jobData.status_message} - ${proceso.progreso}% completado`);
-        }
+        addLog(proceso, `${jobData.status_message} - ${proceso.progreso}% completado`);
       }
     } else if (status === 0) { // Pending
       proceso.estado = ESTADOS_PROCESO.PENDIENTE;
-      const lastLog = proceso.logs[proceso.logs.length - 1];
-      if (!lastLog || !lastLog.includes('Esperando en cola')) {
-        proceso.logs.push(`${new Date().toISOString()}: Esperando en cola...`);
-      }
+      addLog(proceso, 'Esperando en cola...');
     }
     
     // Forzar actualización del array para que Vue detecte los cambios

@@ -120,29 +120,46 @@
         </template>
 
         <template v-slot:[`item.acciones`]="{ item }">
-          <v-menu>
-            <template v-slot:activator="{ props }">
-              <v-btn 
-                icon="mdi-dots-vertical" 
-                size="small" 
-                variant="text" 
-                v-bind="props"
-              ></v-btn>
-            </template>
-            <v-list>
-              <v-list-item @click="verDetalles(item)">
-                <v-list-item-title>
-                  <v-icon class="mr-2">mdi-information</v-icon>
-                  Detalles
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
+          <div class="d-flex align-center">
+            <v-btn
+              v-if="puedeDescargar(item)"
+              icon="mdi-download"
+              size="small"
+              variant="text"
+              color="success"
+              title="Descargar resultado"
+              @click="descargarArchivo(item)"
+            ></v-btn>
+            <v-menu>
+              <template v-slot:activator="{ props }">
+                <v-btn 
+                  icon="mdi-dots-vertical" 
+                  size="small" 
+                  variant="text" 
+                  v-bind="props"
+                ></v-btn>
+              </template>
+              <v-list>
+                <v-list-item @click="verDetalles(item)">
+                  <v-list-item-title>
+                    <v-icon class="mr-2">mdi-information</v-icon>
+                    Detalles
+                  </v-list-item-title>
+                </v-list-item>
+                <v-list-item v-if="puedeDescargar(item)" @click="descargarArchivo(item)">
+                  <v-list-item-title>
+                    <v-icon class="mr-2" color="success">mdi-download</v-icon>
+                    Descargar resultado
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+          </div>
         </template>
       </v-data-table>
 
       <!-- Dialogo de Detalles -->
-      <v-dialog v-model="dialogDetalles" max-width="600">
+      <v-dialog v-model="dialogDetalles" max-width="900">
         <v-card v-if="procesoSeleccionado">
           <v-card-title class="d-flex align-center">
             <v-icon class="mr-2">mdi-information</v-icon>
@@ -171,15 +188,25 @@
                 <strong>Parámetros:</strong>
                 <pre class="mt-2 pa-2 bg-grey-lighten-4 rounded">{{ JSON.stringify(procesoSeleccionado.parametros, null, 2) }}</pre>
               </v-col>
-              <v-col cols="12" v-if="procesoSeleccionado.logs && procesoSeleccionado.logs.length > 0">
-                <strong>Logs:</strong>
-                <v-card variant="outlined" class="mt-2" max-height="200" style="overflow-y: auto;">
-                  <v-card-text>
-                    <div v-for="(log, idx) in procesoSeleccionado.logs" :key="idx" class="text-caption mb-1">
-                      {{ log }}
-                    </div>
-                  </v-card-text>
-                </v-card>
+              <v-col cols="12" v-if="procesoSeleccionado.jobId">
+                <strong>Logs del servidor:</strong>
+                <v-alert v-if="logsError" type="error" density="compact" class="mt-2 mb-0">{{ logsError }}</v-alert>
+                <v-skeleton-loader v-else-if="logsLoading" type="table" class="mt-2" />
+                <v-data-table
+                  v-else
+                  :headers="logsHeaders"
+                  :items="logsTableItems"
+                  class="elevation-0 mt-2"
+                  density="compact"
+                  :items-per-page="10"
+                >
+                  <template v-slot:[`item.timestamp`]="{ value }">
+                    {{ formatFechaHora(value) }}
+                  </template>
+                  <template #no-data>
+                    <div class="text-caption">Sin logs para mostrar.</div>
+                  </template>
+                </v-data-table>
               </v-col>
               <v-col cols="12" v-if="procesoSeleccionado.error">
                 <strong>Error:</strong>
@@ -218,8 +245,11 @@ import {
   cancelarProceso as cancelarProcesoAPI,
   eliminarProceso as eliminarProcesoAPI,
   getDetalleProceso,
+  getJobLogs,
+  descargarResultado,
   TIPOS_PROCESO,
-  ESTADOS_PROCESO
+  ESTADOS_PROCESO,
+  TIPOS_CON_DESCARGA
 } from '../api/procesos.js';
 import { getJobTypes } from '../api/configuracion.js';
 import { formatFechaHora, formatTiempo } from '../utils/formatDate.js';
@@ -231,6 +261,9 @@ const procesando = ref(false);
 const autoRefresh = ref(true);
 const dialogDetalles = ref(false);
 const procesoSeleccionado = ref(null);
+const logsBackend = ref([]);
+const logsLoading = ref(false);
+const logsError = ref('');
 const tipoProceso = ref(null);
 const periodo = ref(new Date().toISOString().substring(0, 7)); // Formato YYYY-MM por defecto
 
@@ -248,15 +281,22 @@ const snackbar = ref({
 // Tipos de proceso disponibles (se cargarán desde la API)
 const tiposProceso = ref([]);
 
-// Headers de la tabla
+// Headers de la tabla de procesos
 const headers = [
   { title: 'ID', value: 'jobId', sortable: false },
   { title: 'Tipo', value: 'tipo', sortable: false },
+  { title: 'Periodo', value: 'periodo', sortable: false },
   { title: 'Estado', value: 'estado', sortable: false },
   { title: 'Progreso', value: 'progreso', sortable: false },
   { title: 'Tiempo', value: 'tiempoTranscurrido', sortable: false },
   { title: 'Inicio', value: 'fechaInicio', sortable: false },
   { title: 'Acciones', value: 'acciones', sortable: false }
+];
+
+const logsHeaders = [
+  { title: 'Fecha', value: 'timestamp' },
+  { title: 'Tipo', value: 'level' },
+  { title: 'Mensaje', value: 'message' }
 ];
 
 // Computed properties
@@ -266,6 +306,10 @@ const estadisticas = computed(() => {
     ejecutando: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.EJECUTANDO).length,
     errores: procesos.value.filter(p => p.estado === ESTADOS_PROCESO.ERROR).length
   };
+});
+
+const logsTableItems = computed(() => {
+  return (logsBackend.value || []).map(normalizeLogItem);
 });
 
 // Funciones de utilidad
@@ -297,6 +341,44 @@ function getProgresoColor(progreso) {
   return 'success';
 }
 
+function puedeDescargar(item) {
+  return item.estado === ESTADOS_PROCESO.COMPLETADO &&
+    TIPOS_CON_DESCARGA.includes(item.tipo);
+}
+
+async function descargarArchivo(item) {
+  if (!item.jobId) {
+    mostrarNotificacion('No hay ID de job para descargar', 'warning');
+    return;
+  }
+  mostrarNotificacion('Preparando descarga...', 'info');
+  const resp = await descargarResultado(item.jobId);
+  if (!resp.ok) {
+    mostrarNotificacion(`Error al descargar: ${resp.error}`, 'error');
+    return;
+  }
+  if (resp.type === 'url') {
+    const a = document.createElement('a');
+    a.href = resp.url;
+    if (resp.filename) a.download = resp.filename;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    const objectUrl = URL.createObjectURL(resp.blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = resp.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(objectUrl);
+  }
+  mostrarNotificacion('Descarga iniciada', 'success');
+}
+
 function mostrarNotificacion(mensaje, color = 'info') {
   snackbar.value = {
     show: true,
@@ -317,9 +399,6 @@ async function iniciarProceso() {
       periodo: periodo.value || new Date().toISOString().substring(0, 7)
     };
     
-    console.log('Iniciando proceso con período:', parametros.periodo);
-    console.log('Tipo de proceso:', tipoProceso.value);
-
     const resp = await iniciarProcesoAPI(tipoProceso.value, parametros);
     
     if (resp.ok) {
@@ -331,7 +410,6 @@ async function iniciarProceso() {
       mostrarNotificacion(`Error: ${resp.message}`, 'error');
     }
   } catch (error) {
-    console.error('Error al iniciar proceso:', error);
     mostrarNotificacion('Error al iniciar el proceso', 'error');
   } finally {
     procesando.value = false;
@@ -339,18 +417,44 @@ async function iniciarProceso() {
 }
 
 async function verDetalles(proceso) {
+  logsBackend.value = [];
+  logsError.value = '';
   try {
     const resp = await getDetalleProceso(proceso.id);
     if (resp.ok) {
       procesoSeleccionado.value = resp.data;
       dialogDetalles.value = true;
+      if (resp.data.jobId) {
+        logsLoading.value = true;
+        try {
+          const logsResp = await getJobLogs(resp.data.jobId);
+          if (logsResp.ok) {
+            logsBackend.value = logsResp.data.items;
+          } else {
+            logsError.value = logsResp.error || 'No fue posible obtener los logs.';
+          }
+        } catch (e) {
+          logsError.value = 'Error al obtener los logs.';
+        } finally {
+          logsLoading.value = false;
+        }
+      }
     } else {
       mostrarNotificacion(`Error: ${resp.message}`, 'error');
     }
   } catch (error) {
-    console.error('Error al obtener detalles:', error);
     mostrarNotificacion('Error al obtener detalles del proceso', 'error');
   }
+}
+
+function normalizeLogItem(log) {
+  if (log == null) return { timestamp: '—', level: '—', message: '—' };
+  if (typeof log === 'string') return { timestamp: '—', level: '—', message: log };
+  return {
+    timestamp: log.timestamp ?? log.log_timestamp ?? log.time ?? log.created_at ?? log.createdAt ?? '—',
+    level:     log.level ?? log.log_level ?? log.severity ?? log.nivel ?? '—',
+    message:   log.message ?? log.log_message ?? log.mensaje ?? log.msg ?? '—'
+  };
 }
 
 // Función para cargar procesos desde la API
@@ -364,7 +468,6 @@ async function cargarProcesos() {
       mostrarNotificacion(`Error: ${resp.message}`, 'error');
     }
   } catch (error) {
-    console.error('Error al cargar procesos:', error);
     mostrarNotificacion('Error al cargar los procesos', 'error');
   } finally {
     loading.value = false;
@@ -404,10 +507,9 @@ onMounted(async () => {
       const data = res.data ?? res.data?.items ?? [];
       const list = Array.isArray(data) ? data : [];
       tiposProceso.value = list;
-      console.log('Tipos de proceso cargados:', tiposProceso.value);
     }
   } catch (e) {
-    console.error('Error loading job types:', e);
+    // silencioso: los tipos quedan vacíos, el select mostrará lista vacía
   }
   
   // Iniciar auto-refresh si está habilitado

@@ -16,6 +16,15 @@
             density="compact"
           />
         </v-col>
+         <v-col cols="12" md="3">
+          <v-text-field
+            v-model="filters.periodo"
+            label="Período"
+            type="month"
+            clearable
+            density="compact"
+          ></v-text-field>
+        </v-col>
         <v-col cols="12" md="3">
           <v-text-field
             v-model="filters.fechaInicio"
@@ -68,18 +77,21 @@
         :items="audits"
         :items-length="totalItems"
         :loading="loading"
-        :page.sync="page"
+        v-model:page="page"
         :items-per-page="itemsPerPage"
         class="elevation-1"
         item-key="jobId"
       >
-      <template v-slot:[`item.started_at`]="{ value }">
+        <template v-slot:[`item.started_at`]="{ value }">
           {{ formatFechaHora(value) }}
         </template>
         <template v-slot:[`item.completed_at`]="{ value }">
           {{ formatFechaHora(value) }}
         </template>
-        <template #item.actions="{ item }">
+        <template v-slot:[`item.input_params`]="{ value }">
+          {{ formatInputParams(value) }}
+        </template>
+        <template v-slot:[`item.actions`]="{ item }">
           <v-menu location="bottom end">
             <template #activator="{ props }">
               <v-btn icon variant="text" v-bind="props" aria-label="Opciones">
@@ -88,12 +100,12 @@
             </template>
             <v-list density="compact">
               <v-list-item @click="openLogs(item)">
-                <v-list-item-title>Detalle</v-list-item-title>
+                <v-list-item-title>Ver logs</v-list-item-title>
               </v-list-item>
             </v-list>
           </v-menu>
         </template>
-        <template #item.status="{ item }">
+        <template v-slot:[`item.status`]="{ item }">
           <v-chip :color="statusColor(item.status)" size="small" :prepend-icon="statusIcon(item.status)">
             {{ item.status ?? '—' }}
           </v-chip>
@@ -133,9 +145,6 @@
               density="compact"
               :items-per-page="10"
             >
-              <template v-slot:[`item.progressPct`]="{ value }">
-                {{ formatProgressPct(value ) }}
-              </template>
               <template v-slot:[`item.timestamp`]="{ value }">
                 {{ formatFechaHora(value) }}
               </template>
@@ -157,7 +166,7 @@
 <script>
 import { getJobAudits, getJobLogs } from '../api/procesos';
 import { getJobTypes } from '../api/configuracion';
-import { formatFechaHora } from '../utils/formatDate';
+import { formatFechaHora, formatPeriodo } from '../utils/formatDate';
 
 
 
@@ -172,13 +181,15 @@ export default {
         createdBy: '',
         fechaInicio: '', // YYYY-MM-DD
         jobType: '',
-        jobId: ''
+        jobId: '',
+        periodo: '' // YYYY-MM
       },
       page: 1,
       itemsPerPage: 10,
       headers: [
         { title: 'ID', value: 'job_id' },
-        { title: 'Tipo Proceso', value: 'job_type' },
+        { title: 'Tipo', value: 'job_type' },
+        { title: 'Periodo', value: 'input_params' },
         { title: 'Ejecutado por', value: 'created_by' },
         { title: 'Inicio', value: 'started_at' },
         { title: 'Fin', value: 'completed_at' },
@@ -196,8 +207,7 @@ export default {
       logsHeaders: [
         { title: 'Fecha', value: 'timestamp' },
         { title: 'Tipo', value: 'level' },
-        { title: 'Mensaje', value: 'message' },
-        { title: 'Progreso', value: 'progressPct', align: 'end' }
+        { title: 'Mensaje', value: 'message' }
       ]
     };
   },
@@ -238,7 +248,7 @@ export default {
           fechaInicio: this.filters.fechaInicio || undefined,
           jobType: this.filters.jobType || undefined,
           jobId: this.filters.jobId || undefined,
-          page: this.page,
+          periodo: this.filters.periodo || undefined,
           pageSize: this.itemsPerPage
         };
         console.log('Fetching audits with params:', params);
@@ -328,10 +338,10 @@ export default {
     },
     normalizeLogItem(log) {
       if (log == null) {
-        return { timestamp: '—', level: '—', message: '—', progressPct: null };
+        return { timestamp: '—', level: '—', message: '—' };
       }
       if (typeof log === 'string') {
-        return { timestamp: '—', level: '—', message: log, progressPct: null };
+        return { timestamp: '—', level: '—', message: log };
       }
 
       const timestamp =
@@ -356,20 +366,19 @@ export default {
         log.msg ??
         '—';
 
-      const progressPct =
-        log.progress_pct ??
-        log.progressPct ??
-        log.progress ??
-        log.pct ??
-        null;
-
-      return { timestamp, level, message, progressPct };
+      return { timestamp, level, message };
     },
-    formatProgressPct(value) {
-      if (value === null || value === undefined || value === '') return '—';
-      const num = Number(value);
-      if (Number.isNaN(num)) return value;
-      return `${num}%`;
+    formatInputParams(value) {
+      if (value == null || value === '') return '—';
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return formatPeriodo(parsed?.Periodo) ?? '—';
+        } catch (e) {
+          return '—';
+        }
+      }
+      return '—';
     }
   }
 };
