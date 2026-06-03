@@ -354,7 +354,7 @@ async function descargarArchivo(item) {
   mostrarNotificacion('Preparando descarga...', 'info');
   const resp = await descargarResultado(item.jobId);
   if (!resp.ok) {
-    mostrarNotificacion(`Error al descargar: ${resp.error}`, 'error');
+    mostrarNotificacion(resp.error, 'error');
     return;
   }
   if (resp.type === 'url') {

@@ -387,8 +387,14 @@ export async function descargarResultado(jobId) {
     const url = `${BASE_URL}/ddjj/exportar-presentacion/${jobId}/archivo`;
     const response = await fetchWithAuth(url, { method: 'GET' });
 
-    if (!response.ok) {
-      return { ok: false, error: `HTTP ${response.status}` };
+    if (response.status !== 200) {
+
+      if (response.status === 404 || response.status === 204) {
+        return { ok: false, error: 'El archivo no contiene registros.' };
+      }
+
+      const body = await response.json();
+      return { ok: false, error: body.error };
     }
 
     const contentType = response.headers.get('Content-Type') || '';
@@ -405,8 +411,20 @@ export async function descargarResultado(jobId) {
     // Respuesta binaria: extraer nombre del header Content-Disposition
     const blob = await response.blob();
     const disposition = response.headers.get('Content-Disposition') || '';
-    const match = disposition.match(/filename[^;=\n]*=(['"]?)([^'";\n]*)\1/i);
-    const filename = match ? match[2] : `resultado_${jobId}`;
+
+    // RFC 5987: filename*=UTF-8''encoded (generado por .NET Core File())
+    const matchStar = disposition.match(/filename\*\s*=\s*(?:[^']*'')?([^;\n\r]*)/i);
+    // Formato clásico: filename="nombre" o filename=nombre
+    const matchPlain = disposition.match(/filename[^;=\n]*=(['"]?)([^'";\n]*)\1/i);
+
+    let filename;
+    if (matchStar?.[1]) {
+      filename = decodeURIComponent(matchStar[1].trim());
+    } else if (matchPlain?.[2]) {
+      filename = matchPlain[2].trim();
+    } else {
+      filename = `resultado_${jobId}`;
+    }
 
     return { ok: true, type: 'blob', blob, filename };
   } catch (error) {
